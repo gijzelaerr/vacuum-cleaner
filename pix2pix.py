@@ -244,12 +244,25 @@ def fits_decode(content):
     return tf.py_func(internal, [content], tf.float32)
 
 
+def npy_decode(content):
+    def internal(data):
+        gray = np.load(BytesIO(data)).astype(np.float32)
+        # hack to make rgb for now
+        img = np.zeros((gray.shape[0], gray.shape[1], 3), dtype=np.float32)
+        img[:, :, 0] = gray
+        img[:, :, 1] = gray
+        img[:, :, 2] = gray
+        return img
+    return tf.py_func(internal, [content], tf.float32)
+
+
+
 def load_examples():
     if a.input_dir is None or not os.path.exists(a.input_dir):
         raise Exception("input_dir does not exist")
 
-    input_paths = glob.glob(os.path.join(a.input_dir, "*.fits"))
-    decode = fits_decode
+    input_paths = glob.glob(os.path.join(a.input_dir, "*.npy"))
+    decode = npy_decode
 
     if len(input_paths) == 0:
         raise Exception("input_dir contains no image files")
