@@ -2,8 +2,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from astropy.io import fits
 import tensorflow as tf
 import numpy as np
+from io import BytesIO
 import argparse
 import os
 import json
@@ -230,15 +232,24 @@ def lab_to_rgb(lab):
         return tf.reshape(srgb_pixels, tf.shape(lab))
 
 
+def fits_decode(content):
+    def internal(data):
+        gray = fits.open(BytesIO(data))[0].data.squeeze().astype(np.float32)
+        reshaped = np.concatenate((gray, gray))
+        img = np.zeros((reshaped.shape[0], reshaped.shape[1], 3), dtype=np.float32)
+        img[:, :, 0] = reshaped
+        img[:, :, 1] = reshaped
+        img[:, :, 2] = reshaped
+        return img
+    return tf.py_func(internal, [content], tf.float32)
+
+
 def load_examples():
     if a.input_dir is None or not os.path.exists(a.input_dir):
         raise Exception("input_dir does not exist")
 
-    input_paths = glob.glob(os.path.join(a.input_dir, "*.jpg"))
-    decode = tf.image.decode_jpeg
-    if len(input_paths) == 0:
-        input_paths = glob.glob(os.path.join(a.input_dir, "*.png"))
-        decode = tf.image.decode_png
+    input_paths = glob.glob(os.path.join(a.input_dir, "*.fits"))
+    decode = fits_decode
 
     if len(input_paths) == 0:
         raise Exception("input_dir contains no image files")
@@ -259,7 +270,6 @@ def load_examples():
         reader = tf.WholeFileReader()
         paths, contents = reader.read(path_queue)
         raw_input = decode(contents)
-        raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
 
         assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
         with tf.control_dependencies([assertion]):
