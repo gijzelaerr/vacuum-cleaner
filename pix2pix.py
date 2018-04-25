@@ -127,12 +127,8 @@ def fits_decode(content):
 
 def npy_decode(content):
     def internal(data):
-        gray = np.load(BytesIO(data)).astype(np.float32)
-        # hack to make rgb for now
-        img = np.zeros((gray.shape[0], gray.shape[1], 3), dtype=np.float32)
-        img[:, :, 0] = gray
-        img[:, :, 1] = gray
-        img[:, :, 2] = gray
+        img = np.load(BytesIO(data)).astype(np.float32)
+        img = np.expand_dims(img, axis=3)
         return img
     return tf.py_func(internal, [content], tf.float32)
 
@@ -142,7 +138,6 @@ def load_examples():
         raise Exception("input_dir does not exist")
 
     input_paths = glob.glob(os.path.join(a.input_dir, "*.npy"))
-    decode = npy_decode
 
     if len(input_paths) == 0:
         raise Exception("input_dir contains no image files")
@@ -162,13 +157,13 @@ def load_examples():
         path_queue = tf.train.string_input_producer(input_paths, shuffle=a.mode == "train")
         reader = tf.WholeFileReader()
         paths, contents = reader.read(path_queue)
-        raw_input = decode(contents)
+        raw_input = npy_decode(contents)
 
-        assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
+        assertion = tf.assert_equal(tf.shape(raw_input)[2], 1, message="image does not have 1 channels")
         with tf.control_dependencies([assertion]):
             raw_input = tf.identity(raw_input)
 
-        raw_input.set_shape([None, None, 3])
+        raw_input.set_shape([None, None, 1])
 
         # break apart image pair and move to range [-1, 1]
         width = tf.shape(raw_input)[1]  # [height, width, channels]
@@ -289,40 +284,41 @@ def create_generator(generator_inputs, generator_outputs_channels):
     return layers[-1]
 
 
-def create_model(inputs, targets):
-    def create_discriminator(discrim_inputs, discrim_targets):
-        n_layers = 3
-        layers = []
+def create_discriminator(discrim_inputs, discrim_targets):
+    n_layers = 3
+    layers = []
 
-        # 2x [batch, height, width, in_channels] => [batch, height, width, in_channels * 2]
-        input = tf.concat([discrim_inputs, discrim_targets], axis=3)
+    # 2x [batch, height, width, in_channels] => [batch, height, width, in_channels * 2]
+    input = tf.concat([discrim_inputs, discrim_targets], axis=3)
 
-        # layer_1: [batch, 256, 256, in_channels * 2] => [batch, 128, 128, ndf]
-        with tf.variable_scope("layer_1"):
-            convolved = discrim_conv(input, a.ndf, stride=2)
-            rectified = lrelu(convolved, 0.2)
+    # layer_1: [batch, 256, 256, in_channels * 2] => [batch, 128, 128, ndf]
+    with tf.variable_scope("layer_1"):
+        convolved = discrim_conv(input, a.ndf, stride=2)
+        rectified = lrelu(convolved, 0.2)
+        layers.append(rectified)
+
+    # layer_2: [batch, 128, 128, ndf] => [batch, 64, 64, ndf * 2]
+    # layer_3: [batch, 64, 64, ndf * 2] => [batch, 32, 32, ndf * 4]
+    # layer_4: [batch, 32, 32, ndf * 4] => [batch, 31, 31, ndf * 8]
+    for i in range(n_layers):
+        with tf.variable_scope("layer_%d" % (len(layers) + 1)):
+            out_channels = a.ndf * min(2 ** (i + 1), 8)
+            stride = 1 if i == n_layers - 1 else 2  # last layer here has stride 1
+            convolved = discrim_conv(layers[-1], out_channels, stride=stride)
+            normalized = batchnorm(convolved)
+            rectified = lrelu(normalized, 0.2)
             layers.append(rectified)
 
-        # layer_2: [batch, 128, 128, ndf] => [batch, 64, 64, ndf * 2]
-        # layer_3: [batch, 64, 64, ndf * 2] => [batch, 32, 32, ndf * 4]
-        # layer_4: [batch, 32, 32, ndf * 4] => [batch, 31, 31, ndf * 8]
-        for i in range(n_layers):
-            with tf.variable_scope("layer_%d" % (len(layers) + 1)):
-                out_channels = a.ndf * min(2 ** (i + 1), 8)
-                stride = 1 if i == n_layers - 1 else 2  # last layer here has stride 1
-                convolved = discrim_conv(layers[-1], out_channels, stride=stride)
-                normalized = batchnorm(convolved)
-                rectified = lrelu(normalized, 0.2)
-                layers.append(rectified)
+    # layer_5: [batch, 31, 31, ndf * 8] => [batch, 30, 30, 1]
+    with tf.variable_scope("layer_%d" % (len(layers) + 1)):
+        convolved = discrim_conv(rectified, out_channels=1, stride=1)
+        output = tf.sigmoid(convolved)
+        layers.append(output)
 
-        # layer_5: [batch, 31, 31, ndf * 8] => [batch, 30, 30, 1]
-        with tf.variable_scope("layer_%d" % (len(layers) + 1)):
-            convolved = discrim_conv(rectified, out_channels=1, stride=1)
-            output = tf.sigmoid(convolved)
-            layers.append(output)
+    return layers[-1]
 
-        return layers[-1]
 
+def create_model(inputs, targets):
     with tf.variable_scope("generator"):
         out_channels = int(targets.get_shape()[-1])
         outputs = create_generator(inputs, out_channels)
@@ -436,11 +432,11 @@ def export():
     input_data = tf.decode_base64(input[0])
     input_image = tf.image.decode_png(input_data)
 
-    # remove alpha channel if present
-    input_image = tf.cond(tf.equal(tf.shape(input_image)[2], 4), lambda: input_image[:, :, :3], lambda: input_image)
-    # convert grayscale to RGB
-    input_image = tf.cond(tf.equal(tf.shape(input_image)[2], 1), lambda: tf.image.grayscale_to_rgb(input_image),
-                          lambda: input_image)
+    ## remove alpha channel if present
+    #input_image = tf.cond(tf.equal(tf.shape(input_image)[2], 4), lambda: input_image[:, :, :3], lambda: input_image)
+    ## convert grayscale to RGB
+    #input_image = tf.cond(tf.equal(tf.shape(input_image)[2], 1), lambda: tf.image.grayscale_to_rgb(input_image),
+    #                      lambda: input_image)
 
     input_image = tf.image.convert_image_dtype(input_image, dtype=tf.float32)
     input_image.set_shape([CROP_SIZE, CROP_SIZE, 3])
