@@ -131,6 +131,26 @@ def npy_decode(content):
     return tf.py_func(internal, [content], tf.float32)
 
 
+def npy_encode(image):
+    def internal(data):
+        buf = BytesIO()
+        np.save(buf, data)
+        return buf.getvalue()
+
+    return tf.py_func(internal, [image], tf.string)
+
+
+def fits_encode(image):
+    def internal(data):
+        buf = BytesIO()
+        hdu = fits.PrimaryHDU(data.squeeze())
+        hdul = fits.HDUList([hdu])
+        hdul.writeto(buf)
+        return buf.getvalue()
+
+    return tf.py_func(internal, [image], tf.string)
+
+
 def load_examples():
     if a.input_dir is None or not os.path.exists(a.input_dir):
         raise Exception("input_dir does not exist")
@@ -379,8 +399,8 @@ def create_model(inputs, targets):
     )
 
 
-def save_images(fetches, step=None):
-    image_dir = os.path.join(a.output_dir, "images")
+def save_images(fetches, step=None, subfolder="images", extention="png"):
+    image_dir = os.path.join(a.output_dir, subfolder)
     if not os.path.exists(image_dir):
         os.makedirs(image_dir)
 
@@ -389,7 +409,7 @@ def save_images(fetches, step=None):
         name, _ = os.path.splitext(os.path.basename(in_path.decode("utf8")))
         fileset = {"name": name, "step": step}
         for kind in ["inputs", "outputs", "targets"]:
-            filename = name + "-" + kind + ".png"
+            filename = name + "-" + kind + "." + extention
             if step is not None:
                 filename = "%08d-%s" % (step, filename)
             fileset[kind] = filename
@@ -539,6 +559,23 @@ def main():
             "outputs": tf.map_fn(tf.image.encode_png, converted_outputs, dtype=tf.string, name="output_pngs"),
         }
 
+    with tf.name_scope("encode_numpies"):
+        numpy_fetches = {
+            "paths": examples.paths,
+            "inputs": tf.map_fn(npy_encode, converted_inputs, dtype=tf.string, name="input_npys"),
+            "targets": tf.map_fn(npy_encode, converted_targets, dtype=tf.string, name="target_npys"),
+            "outputs": tf.map_fn(npy_encode, converted_outputs, dtype=tf.string, name="output_npys"),
+        }
+
+    with tf.name_scope("encode_fitss"):
+        fits_fetches = {
+            "paths": examples.paths,
+            "inputs": tf.map_fn(fits_encode, converted_inputs, dtype=tf.string, name="input_fits"),
+            "targets": tf.map_fn(fits_encode, converted_targets, dtype=tf.string, name="target_fits"),
+            "outputs": tf.map_fn(fits_encode, converted_outputs, dtype=tf.string, name="output_fits"),
+        }
+
+
     # summaries
     with tf.name_scope("inputs_summary"):
         tf.summary.image("inputs", converted_inputs)
@@ -592,14 +629,38 @@ def main():
             start = time.time()
             max_steps = min(examples.steps_per_epoch, max_steps)
             index_path = None
+
+            """
             for step in range(max_steps):
                 results = sess.run(display_fetches)
                 filesets = save_images(results)
                 for i, f in enumerate(filesets):
                     print("evaluated image", f["name"])
                 index_path = append_index(filesets)
+
             print("wrote index at", index_path)
             print("rate", (time.time() - start) / max_steps)
+
+            # repeat the same for numpy arrays
+            for step in range(max_steps):
+                results = sess.run(numpy_fetches)
+                filesets = save_images(results, subfolder="npys", extention="npy")
+                for i, f in enumerate(filesets):
+                    print("evaluated numpy", f["name"])
+                index_path = append_index(filesets)
+            print("wrote index at", index_path)
+            print("rate", (time.time() - start) / max_steps)
+            """
+            # repeat the same for fits arrays
+            for step in range(max_steps):
+                results = sess.run(fits_fetches)
+                filesets = save_images(results, subfolder="fits", extention="fits")
+                for i, f in enumerate(filesets):
+                    print("evaluated fits", f["name"])
+                index_path = append_index(filesets)
+            print("wrote index at", index_path)
+            print("rate", (time.time() - start) / max_steps)
+
         else:
             # training
             start = time.time()
