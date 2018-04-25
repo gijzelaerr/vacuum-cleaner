@@ -3,3 +3,5 @@ tags
 test
 models
 .idea
+datasets/
+scratch/
