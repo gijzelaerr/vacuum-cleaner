@@ -47,8 +47,6 @@ parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of a
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
 
-# export options
-parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
 a = parser.parse_args()
 
 EPS = 1e-12
@@ -319,47 +317,48 @@ def create_discriminator(discrim_inputs, discrim_targets):
 
 
 def create_model(inputs, targets):
-    with tf.variable_scope("generator"):
-        out_channels = int(targets.get_shape()[-1])
-        outputs = create_generator(inputs, out_channels)
+    with tf.device('/device:GPU:1'):
+        with tf.variable_scope("generator"):
+            out_channels = int(targets.get_shape()[-1])
+            outputs = create_generator(inputs, out_channels)
 
-    # create two copies of discriminator, one for real pairs and one for fake pairs
-    # they share the same underlying variables
-    with tf.name_scope("real_discriminator"):
-        with tf.variable_scope("discriminator"):
-            # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-            predict_real = create_discriminator(inputs, targets)
+        # create two copies of discriminator, one for real pairs and one for fake pairs
+        # they share the same underlying variables
+        with tf.name_scope("real_discriminator"):
+            with tf.variable_scope("discriminator"):
+                # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
+                predict_real = create_discriminator(inputs, targets)
 
-    with tf.name_scope("fake_discriminator"):
-        with tf.variable_scope("discriminator", reuse=True):
-            # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-            predict_fake = create_discriminator(inputs, outputs)
+        with tf.name_scope("fake_discriminator"):
+            with tf.variable_scope("discriminator", reuse=True):
+                # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
+                predict_fake = create_discriminator(inputs, outputs)
 
-    with tf.name_scope("discriminator_loss"):
-        # minimizing -tf.log will try to get inputs to 1
-        # predict_real => 1
-        # predict_fake => 0
-        discrim_loss = tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))
+        with tf.name_scope("discriminator_loss"):
+            # minimizing -tf.log will try to get inputs to 1
+            # predict_real => 1
+            # predict_fake => 0
+            discrim_loss = tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))
 
-    with tf.name_scope("generator_loss"):
-        # predict_fake => 1
-        # abs(targets - outputs) => 0
-        gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
-        gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
-        gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight
+        with tf.name_scope("generator_loss"):
+            # predict_fake => 1
+            # abs(targets - outputs) => 0
+            gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
+            gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
+            gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight
 
-    with tf.name_scope("discriminator_train"):
-        discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
-        discrim_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
-        discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars)
-        discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
+        with tf.name_scope("discriminator_train"):
+            discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
+            discrim_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
+            discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars)
+            discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
 
-    with tf.name_scope("generator_train"):
-        with tf.control_dependencies([discrim_train]):
-            gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
-            gen_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
-            gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars)
-            gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
+        with tf.name_scope("generator_train"):
+            with tf.control_dependencies([discrim_train]):
+                gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
+                gen_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
+                gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars)
+                gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
     update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1])
@@ -432,26 +431,15 @@ def export():
     input_data = tf.decode_base64(input[0])
     input_image = tf.image.decode_png(input_data)
 
-    ## remove alpha channel if present
-    #input_image = tf.cond(tf.equal(tf.shape(input_image)[2], 4), lambda: input_image[:, :, :3], lambda: input_image)
-    ## convert grayscale to RGB
-    #input_image = tf.cond(tf.equal(tf.shape(input_image)[2], 1), lambda: tf.image.grayscale_to_rgb(input_image),
-    #                      lambda: input_image)
-
     input_image = tf.image.convert_image_dtype(input_image, dtype=tf.float32)
-    input_image.set_shape([CROP_SIZE, CROP_SIZE, 3])
+    input_image.set_shape([CROP_SIZE, CROP_SIZE, 1])
     batch_input = tf.expand_dims(input_image, axis=0)
 
     with tf.variable_scope("generator"):
-        batch_output = deprocess(create_generator(preprocess(batch_input), 3))
+        batch_output = deprocess(create_generator(preprocess(batch_input), 1))
 
     output_image = tf.image.convert_image_dtype(batch_output, dtype=tf.uint8)[0]
-    if a.output_filetype == "png":
-        output_data = tf.image.encode_png(output_image)
-    elif a.output_filetype == "jpeg":
-        output_data = tf.image.encode_jpeg(output_image, quality=80)
-    else:
-        raise Exception("invalid filetype")
+    output_data = tf.image.encode_png(output_image)
     output = tf.convert_to_tensor([tf.encode_base64(output_data)])
 
     key = tf.placeholder(tf.string, shape=[1])
@@ -471,10 +459,7 @@ def export():
     export_saver = tf.train.Saver()
 
     with tf.Session() as sess:
-        from tensorflow.python import debug as tf_debug
 
-        sess = tf_debug.LocalCLIDebugWrapperSession(sess)
-        sess.run(init_op)
         print("loading model from checkpoint")
         checkpoint = tf.train.latest_checkpoint(a.checkpoint)
         restore_saver.restore(sess, checkpoint)
