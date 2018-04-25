@@ -17,24 +17,24 @@ mkdir -p $TARGET/val
 for i in $(seq 0 399); do
     echo train/$i
     python $HERE/fits_merge.py \
-        $INPUT/1-skymodel.fits \
-        $INPUT/1-wsclean-dirty.fits \
+        $INPUT/$i-skymodel.fits \
+        $INPUT/$i-wsclean-dirty.fits \
         $TARGET/train/$i
 done
 
 for i in $(seq 400 499); do
     echo test/$i
     python $HERE/fits_merge.py \
-        $INPUT/1-skymodel.fits \
-        $INPUT/1-wsclean-dirty.fits \
+        $INPUT/$i-skymodel.fits \
+        $INPUT/$i-wsclean-dirty.fits \
         $TARGET/test/$i
 done
 
 for i in $(seq 500 599); do
     echo val/$i
     python $HERE/fits_merge.py \
-        $INPUT/1-skymodel.fits \
-        $INPUT/1-wsclean-dirty.fits \
+        $INPUT/$i-skymodel.fits \
+        $INPUT/$i-wsclean-dirty.fits \
         $TARGET/val/$i
 done
 
