@@ -33,7 +33,6 @@ parser.add_argument("--display_freq", type=int, default=0,
 parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
 
 parser.add_argument("--separable_conv", action="store_true", help="use separable convolutions in the generator")
-parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
 parser.add_argument("--batch_size", type=int, default=1, help="number of images in batch")
 parser.add_argument("--which_direction", type=str, default="AtoB", choices=["AtoB", "BtoA"])
 parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
@@ -56,17 +55,6 @@ Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, st
 Model = collections.namedtuple("Model",
                                "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_grads_and_vars, train")
 
-
-def preprocess(image):
-    with tf.name_scope("preprocess"):
-        # [0, 1] => [-1, 1]
-        return image * 2 - 1
-
-
-def deprocess(image):
-    with tf.name_scope("deprocess"):
-        # [-1, 1] => [0, 1]
-        return (image + 1) / 2
 
 
 def discrim_conv(batch_input, out_channels, stride):
@@ -185,8 +173,8 @@ def load_examples():
 
         # break apart image pair and move to range [-1, 1]
         width = tf.shape(raw_input)[1]  # [height, width, channels]
-        a_images = preprocess(raw_input[:, :width // 2, :])
-        b_images = preprocess(raw_input[:, width // 2:, :])
+        a_images = raw_input[:, :width // 2, :]
+        b_images = raw_input[:, width // 2:, :]
 
     if a.which_direction == "AtoB":
         inputs, targets = [a_images, b_images]
@@ -408,7 +396,7 @@ def save_images(fetches, step=None, subfolder="images", extention="png"):
     for i, in_path in enumerate(fetches["paths"]):
         name, _ = os.path.splitext(os.path.basename(in_path.decode("utf8")))
         fileset = {"name": name, "step": step}
-        for kind in ["inputs", "outputs", "targets"]:
+        for kind in set(fetches.keys()) - {"paths"}:
             filename = name + "-" + kind + "." + extention
             if step is not None:
                 filename = "%08d-%s" % (step, filename)
@@ -456,7 +444,7 @@ def export():
     batch_input = tf.expand_dims(input_image, axis=0)
 
     with tf.variable_scope("generator"):
-        batch_output = deprocess(create_generator(preprocess(batch_input), 1))
+        batch_output = create_generator(batch_input, 1)
 
     output_image = tf.image.convert_image_dtype(batch_output, dtype=tf.uint8)[0]
     output_data = tf.image.encode_png(output_image)
@@ -529,27 +517,18 @@ def main():
     # inputs and targets are [batch_size, height, width, channels]
     model = create_model(examples.inputs, examples.targets)
 
-    inputs = deprocess(examples.inputs)
-    targets = deprocess(examples.targets)
-    outputs = deprocess(model.outputs)
-
-    def convert(image):
-        if a.aspect_ratio != 1.0:
-            # upscale to correct aspect ratio
-            size = [CROP_SIZE, int(round(CROP_SIZE * a.aspect_ratio))]
-            image = tf.image.resize_images(image, size=size, method=tf.image.ResizeMethod.BICUBIC)
-
-        return tf.image.convert_image_dtype(image, dtype=tf.uint8, saturate=True)
-
     # reverse any processing on images so they can be written to disk or displayed to user
     with tf.name_scope("convert_inputs"):
-        converted_inputs = convert(inputs)
+        converted_inputs = tf.image.convert_image_dtype(examples.inputs, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("convert_targets"):
-        converted_targets = convert(targets)
+        converted_targets = tf.image.convert_image_dtype(examples.targets, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("convert_outputs"):
-        converted_outputs = convert(outputs)
+        converted_outputs = tf.image.convert_image_dtype(model.outputs, dtype=tf.uint8, saturate=True)
+
+    with tf.name_scope("generate_residuals"):
+        residuals = examples.targets - model.outputs
 
     with tf.name_scope("encode_images"):
         display_fetches = {
@@ -562,19 +541,20 @@ def main():
     with tf.name_scope("encode_numpies"):
         numpy_fetches = {
             "paths": examples.paths,
-            "inputs": tf.map_fn(npy_encode, converted_inputs, dtype=tf.string, name="input_npys"),
-            "targets": tf.map_fn(npy_encode, converted_targets, dtype=tf.string, name="target_npys"),
-            "outputs": tf.map_fn(npy_encode, converted_outputs, dtype=tf.string, name="output_npys"),
+            "inputs": tf.map_fn(npy_encode, examples.inputs, dtype=tf.string, name="input_npys"),
+            "targets": tf.map_fn(npy_encode, examples.targets, dtype=tf.string, name="target_npys"),
+            "outputs": tf.map_fn(npy_encode, model.outputs, dtype=tf.string, name="output_npys"),
+            "residuals": tf.map_fn(npy_encode, residuals, dtype=tf.string, name="residuals_npys"),
         }
 
     with tf.name_scope("encode_fitss"):
         fits_fetches = {
             "paths": examples.paths,
-            "inputs": tf.map_fn(fits_encode, converted_inputs, dtype=tf.string, name="input_fits"),
-            "targets": tf.map_fn(fits_encode, converted_targets, dtype=tf.string, name="target_fits"),
-            "outputs": tf.map_fn(fits_encode, converted_outputs, dtype=tf.string, name="output_fits"),
+            "inputs": tf.map_fn(fits_encode, examples.inputs, dtype=tf.string, name="input_fits"),
+            "targets": tf.map_fn(fits_encode, examples.targets, dtype=tf.string, name="target_fits"),
+            "outputs": tf.map_fn(fits_encode, model.outputs, dtype=tf.string, name="output_fits"),
+            "residuals": tf.map_fn(fits_encode, residuals, dtype=tf.string, name="residuals_fits"),
         }
-
 
     # summaries
     with tf.name_scope("inputs_summary"):
@@ -585,6 +565,9 @@ def main():
 
     with tf.name_scope("outputs_summary"):
         tf.summary.image("outputs", converted_outputs)
+
+    with tf.name_scope("residuals_summary"):
+        tf.summary.image("residuals", residuals)
 
     with tf.name_scope("predict_real_summary"):
         tf.summary.image("predict_real", tf.image.convert_image_dtype(model.predict_real, dtype=tf.uint8))
@@ -630,7 +613,6 @@ def main():
             max_steps = min(examples.steps_per_epoch, max_steps)
             index_path = None
 
-            """
             for step in range(max_steps):
                 results = sess.run(display_fetches)
                 filesets = save_images(results)
@@ -650,7 +632,7 @@ def main():
                 index_path = append_index(filesets)
             print("wrote index at", index_path)
             print("rate", (time.time() - start) / max_steps)
-            """
+
             # repeat the same for fits arrays
             for step in range(max_steps):
                 results = sess.run(fits_fetches)
