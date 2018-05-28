@@ -18,7 +18,10 @@ if os.access(npy_prefix + '.npy', os.R_OK):
     print('"{}" already exists'.format(npy_prefix + '.npy'))
     sys.exit(1)
 
-data = fits.open(fits1_path)[axis].data.squeeze()
+
+fits_template = fits.open(fits1_path)[axis]
+
+data = fits_template.data.squeeze()
 
 count = 0
 for x in range(int(data.shape[0] / size)):
@@ -29,5 +32,6 @@ for x in range(int(data.shape[0] / size)):
 
 
 hdu = fits.PrimaryHDU(data.squeeze())
+hdu.header = fits_template.header
 hdul = fits.HDUList([hdu])
 hdul.writeto("stitched")
