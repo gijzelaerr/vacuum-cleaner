@@ -37,7 +37,7 @@ parser.add_argument("--batch_size", type=int, default=1, help="number of images 
 parser.add_argument("--which_direction", type=str, default="AtoB", choices=["AtoB", "BtoA"])
 parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
 parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
-parser.add_argument("--scale_size", type=int, default=542, help="scale images to this size before cropping to 256x256")
+parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
 parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
 parser.add_argument("--no_flip", dest="flip", action="store_false", help="don't flip images horizontally")
 parser.set_defaults(flip=True)
@@ -49,7 +49,7 @@ parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN
 a = parser.parse_args()
 
 EPS = 1e-12
-CROP_SIZE = 512
+CROP_SIZE = 256
 
 Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, steps_per_epoch")
 Model = collections.namedtuple("Model",
@@ -201,9 +201,6 @@ def load_examples():
             r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], CROP_SIZE, CROP_SIZE)
         elif a.scale_size < CROP_SIZE:
             raise Exception("scale size cannot be less than crop size")
-
-        # scale the data, only for ben2
-        r = 1000 * r
         return r
 
     with tf.name_scope("input_images"):
@@ -228,15 +225,14 @@ def load_examples():
 def create_generator(generator_inputs, generator_outputs_channels):
     layers = []
 
-    # encoder_1: [batch, 512, 512, in_channels] => [batch, 256, 256, ngf]
+    # encoder_1: [batch, 256, 256, in_channels] => [batch, 128, 128, ngf]
     with tf.variable_scope("encoder_1"):
         output = gen_conv(generator_inputs, a.ngf)
         layers.append(output)
 
     layer_specs = [
-        a.ngf * 2,  # encoder_2: [batch, 256, 256, ngf] => [batch, 128, 128, ngf * 2]
-        a.ngf * 4,  # encoder_2: [batch, 128, 128, ngf] => [batch, 64, 64, ngf * 4]
-        a.ngf * 8,  # encoder_3: [batch, 64, 64, ngf * 2] => [batch, 32, 32, ngf * 8]
+        a.ngf * 2,  # encoder_2: [batch, 128, 128, ngf] => [batch, 64, 64, ngf * 2]
+        a.ngf * 4,  # encoder_3: [batch, 64, 64, ngf * 2] => [batch, 32, 32, ngf * 4]
         a.ngf * 8,  # encoder_4: [batch, 32, 32, ngf * 4] => [batch, 16, 16, ngf * 8]
         a.ngf * 8,  # encoder_5: [batch, 16, 16, ngf * 8] => [batch, 8, 8, ngf * 8]
         a.ngf * 8,  # encoder_6: [batch, 8, 8, ngf * 8] => [batch, 4, 4, ngf * 8]
@@ -257,10 +253,9 @@ def create_generator(generator_inputs, generator_outputs_channels):
         (a.ngf * 8, 0.5),  # decoder_7: [batch, 2, 2, ngf * 8 * 2] => [batch, 4, 4, ngf * 8 * 2]
         (a.ngf * 8, 0.5),  # decoder_6: [batch, 4, 4, ngf * 8 * 2] => [batch, 8, 8, ngf * 8 * 2]
         (a.ngf * 8, 0.0),  # decoder_5: [batch, 8, 8, ngf * 8 * 2] => [batch, 16, 16, ngf * 8 * 2]
-        (a.ngf * 8, 0.0),  # decoder_4: [batch, 16, 16, ngf * 8 * 2] => [batch, 32, 32, ngf * 4 * 2]
-        (a.ngf * 4, 0.0),  # decoder_3: [batch, 32, 32, ngf * 4 * 2] => [batch, 64, 64, ngf * 2 * 2]
-        (a.ngf * 2, 0.0),  # decoder_2: [batch, 64, 64, ngf * 2 * 2] => [batch, 128, 128, ngf * 2]
-        (a.ngf * 2, 0.0),  # decoder_2: [batch, 128, 128, ngf * 2 * 2] => [batch, 256, 256, ngf * 2]
+        (a.ngf * 4, 0.0),  # decoder_4: [batch, 16, 16, ngf * 8 * 2] => [batch, 32, 32, ngf * 4 * 2]
+        (a.ngf * 2, 0.0),  # decoder_3: [batch, 32, 32, ngf * 4 * 2] => [batch, 64, 64, ngf * 2 * 2]
+        (a.ngf, 0.0),  # decoder_2: [batch, 64, 64, ngf * 2 * 2] => [batch, 128, 128, ngf * 2]
     ]
 
     num_encoder_layers = len(layers)
@@ -284,11 +279,14 @@ def create_generator(generator_inputs, generator_outputs_channels):
 
             layers.append(output)
 
-    # decoder_1: [batch, 256, 256, ngf * 2] => [batch, 512, 512, generator_outputs_channels (1)]
+    # decoder_1: [batch, 128, 128, ngf * 2] => [batch, 256, 256, generator_outputs_channels]
     with tf.variable_scope("decoder_1"):
         input = tf.concat([layers[-1], layers[0]], axis=3)
         rectified = tf.nn.relu(input)
         output = gen_deconv(rectified, generator_outputs_channels)
+
+        # remove , we want float values
+
         #output = tf.tanh(output)
         layers.append(output)
 
