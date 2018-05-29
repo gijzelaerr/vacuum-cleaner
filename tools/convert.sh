@@ -2,8 +2,8 @@
 
 INPUT=$1
 HERE="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-TARGET=${HERE}/../datasets/spiel_512/
-INPUT=/home/gijs/Work/spiel/runs/run_2018-05-17-10-52-04/results
+TARGET=${HERE}/../datasets/spiel_kat7/
+INPUT=/home/gijs/Work/spiel/runs/second_kat7_2018-05-28/results
 
 mkdir -p $TARGET/train
 mkdir -p $TARGET/test

@@ -5,3 +5,8 @@ models
 .idea
 datasets/
 scratch/
+.ipynb_checkpoints/
+.venv-cpu/
+.vscode/
+notebooks/.ipynb_checkpoints/
+

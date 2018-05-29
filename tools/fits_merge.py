@@ -4,7 +4,7 @@ from astropy.io import fits
 import numpy as np
 
 axis = 0
-size = 512
+size = 256
 
 if len(sys.argv) != 4:
     print("usage: $ {} <A.fits> <B.fits> <output prefix>".format(sys.argv[0]))
