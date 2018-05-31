@@ -541,15 +541,6 @@ def main():
             "outputs": tf.map_fn(tf.image.encode_png, converted_outputs, dtype=tf.string, name="output_pngs"),
         }
 
-    with tf.name_scope("encode_numpies"):
-        numpy_fetches = {
-            "paths": examples.paths,
-            "inputs": tf.map_fn(npy_encode, examples.inputs, dtype=tf.string, name="input_npys"),
-            "targets": tf.map_fn(npy_encode, examples.targets, dtype=tf.string, name="target_npys"),
-            "outputs": tf.map_fn(npy_encode, model.outputs, dtype=tf.string, name="output_npys"),
-            "residuals": tf.map_fn(npy_encode, residuals, dtype=tf.string, name="residuals_npys"),
-        }
-
     with tf.name_scope("encode_fitss"):
         fits_fetches = {
             "paths": examples.paths,
@@ -623,16 +614,6 @@ def main():
                     print("evaluated image", f["name"])
                 index_path = append_index(filesets)
 
-            print("wrote index at", index_path)
-            print("rate", (time.time() - start) / max_steps)
-
-            # repeat the same for numpy arrays
-            for step in range(max_steps):
-                results = sess.run(numpy_fetches)
-                filesets = save_images(results, subfolder="npys", extention="npy")
-                for i, f in enumerate(filesets):
-                    print("evaluated numpy", f["name"])
-                index_path = append_index(filesets)
             print("wrote index at", index_path)
             print("rate", (time.time() - start) / max_steps)
 
