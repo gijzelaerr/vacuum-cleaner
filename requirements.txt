@@ -1,0 +1,5 @@
+tensorflow
+astropy
+scipy
+notebook
+ipython

@@ -45,6 +45,7 @@ parser.add_argument("--lr", type=float, default=0.0002, help="initial learning r
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
+parser.add_argument("--input_multiply", type=float, default=1.0, help="use this to scale the input image")
 
 a = parser.parse_args()
 
@@ -55,6 +56,18 @@ Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, st
 Model = collections.namedtuple("Model",
                                "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_grads_and_vars, train")
 
+
+def preprocess(image):
+    # we assume a max flux scale of 10 Jy
+    with tf.name_scope("preprocess"):
+        # [0, 10 => [-1, 1]
+        return (image / 5) - 1
+
+
+def deprocess(image):
+    with tf.name_scope("deprocess"):
+        # [-1, 1] => [0, 10]
+        return (image + 1) * 5
 
 
 def discrim_conv(batch_input, out_channels, stride):
@@ -171,10 +184,13 @@ def load_examples():
 
         raw_input.set_shape([None, None, 1])
 
+        # ugly, but sometimes we need to scale the test data to match the train data
+        raw_input = raw_input * a.input_multiply
+
         # break apart image pair and move to range [-1, 1]
         width = tf.shape(raw_input)[1]  # [height, width, channels]
-        a_images = raw_input[:, :width // 2, :]
-        b_images = raw_input[:, width // 2:, :]
+        a_images = preprocess(raw_input[:, :width // 2, :])
+        b_images = preprocess(raw_input[:, width // 2:, :])
 
     if a.which_direction == "AtoB":
         inputs, targets = [a_images, b_images]
@@ -285,9 +301,7 @@ def create_generator(generator_inputs, generator_outputs_channels):
         rectified = tf.nn.relu(input)
         output = gen_deconv(rectified, generator_outputs_channels)
 
-        # remove , we want float values
-
-        #output = tf.tanh(output)
+        output = tf.tanh(output)
         layers.append(output)
 
     return layers[-1]
@@ -328,48 +342,50 @@ def create_discriminator(discrim_inputs, discrim_targets):
 
 
 def create_model(inputs, targets):
-    with tf.device('/device:GPU:1'):
-        with tf.variable_scope("generator"):
-            out_channels = int(targets.get_shape()[-1])
-            outputs = create_generator(inputs, out_channels)
+    #with tf.device('/device:GPU:0'):
+    with tf.variable_scope("generator"):
+        out_channels = int(targets.get_shape()[-1])
+        outputs = create_generator(inputs, out_channels)
 
-        # create two copies of discriminator, one for real pairs and one for fake pairs
-        # they share the same underlying variables
-        with tf.name_scope("real_discriminator"):
-            with tf.variable_scope("discriminator"):
-                # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-                predict_real = create_discriminator(inputs, targets)
+    # create two copies of discriminator, one for real pairs and one for fake pairs
+    # they share the same underlying variables
+    with tf.name_scope("real_discriminator"):
+        with tf.variable_scope("discriminator"):
+            # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
+            predict_real = create_discriminator(inputs, targets)
 
-        with tf.name_scope("fake_discriminator"):
-            with tf.variable_scope("discriminator", reuse=True):
-                # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-                predict_fake = create_discriminator(inputs, outputs)
+    with tf.name_scope("fake_discriminator"):
+        with tf.variable_scope("discriminator", reuse=True):
+            # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
+            predict_fake = create_discriminator(inputs, outputs)
 
-        with tf.name_scope("discriminator_loss"):
-            # minimizing -tf.log will try to get inputs to 1
-            # predict_real => 1
-            # predict_fake => 0
-            discrim_loss = tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))
+    with tf.name_scope("discriminator_loss"):
+        # minimizing -tf.log will try to get inputs to 1
+        # predict_real => 1
+        # predict_fake => 0
+        discrim_loss = tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))
 
-        with tf.name_scope("generator_loss"):
-            # predict_fake => 1
-            # abs(targets - outputs) => 0
-            gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
-            gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
-            gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight
+    with tf.name_scope("generator_loss"):
+        # predict_fake => 1
+        # abs(targets - outputs) => 0
+        gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
+        gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
+        gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight
 
-        with tf.name_scope("discriminator_train"):
-            discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
-            discrim_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
-            discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars)
-            discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
+    with tf.name_scope("discriminator_train"):
+        discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
+        discrim_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
+        discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars)
+        discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
 
-        with tf.name_scope("generator_train"):
-            with tf.control_dependencies([discrim_train]):
-                gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
-                gen_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
-                gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars)
-                gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
+    with tf.name_scope("generator_train"):
+        with tf.control_dependencies([discrim_train]):
+            gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
+            gen_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
+            gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars)
+            gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
+
+    # end with gpu indentation
 
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
     update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1])
@@ -447,7 +463,7 @@ def export():
     batch_input = tf.expand_dims(input_image, axis=0)
 
     with tf.variable_scope("generator"):
-        batch_output = create_generator(batch_input, 1)
+        batch_output = deprocess(create_generator(preprocess(batch_input), 1))
 
     output_image = tf.image.convert_image_dtype(batch_output, dtype=tf.uint8)[0]
     output_data = tf.image.encode_png(output_image)
@@ -520,18 +536,19 @@ def main():
     # inputs and targets are [batch_size, height, width, channels]
     model = create_model(examples.inputs, examples.targets)
 
+    deprocessed_input = deprocess(examples.inputs)
+    deprocessed_target = deprocess(examples.targets)
+    deprocessed_ouput = deprocess(model.outputs)
+
     # reverse any processing on images so they can be written to disk or displayed to user
     with tf.name_scope("convert_inputs"):
-        converted_inputs = tf.image.convert_image_dtype(examples.inputs, dtype=tf.uint8, saturate=True)
+        converted_inputs = tf.image.convert_image_dtype(deprocessed_input, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("convert_targets"):
-        converted_targets = tf.image.convert_image_dtype(examples.targets, dtype=tf.uint8, saturate=True)
+        converted_targets = tf.image.convert_image_dtype(deprocessed_target, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("convert_outputs"):
-        converted_outputs = tf.image.convert_image_dtype(model.outputs, dtype=tf.uint8, saturate=True)
-
-    with tf.name_scope("generate_residuals"):
-        residuals = examples.targets - model.outputs
+        converted_outputs = tf.image.convert_image_dtype(deprocessed_ouput, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("encode_images"):
         display_fetches = {
@@ -544,10 +561,9 @@ def main():
     with tf.name_scope("encode_fitss"):
         fits_fetches = {
             "paths": examples.paths,
-            "inputs": tf.map_fn(fits_encode, examples.inputs, dtype=tf.string, name="input_fits"),
-            "targets": tf.map_fn(fits_encode, examples.targets, dtype=tf.string, name="target_fits"),
-            "outputs": tf.map_fn(fits_encode, model.outputs, dtype=tf.string, name="output_fits"),
-            "residuals": tf.map_fn(fits_encode, residuals, dtype=tf.string, name="residuals_fits"),
+            "inputs": tf.map_fn(fits_encode, deprocessed_input, dtype=tf.string, name="input_fits"),
+            "targets": tf.map_fn(fits_encode, deprocessed_target, dtype=tf.string, name="target_fits"),
+            "outputs": tf.map_fn(fits_encode, deprocessed_ouput, dtype=tf.string, name="output_fits"),
         }
 
     # summaries
@@ -559,9 +575,6 @@ def main():
 
     with tf.name_scope("outputs_summary"):
         tf.summary.image("outputs", converted_outputs)
-
-    with tf.name_scope("residuals_summary"):
-        tf.summary.image("residuals", residuals)
 
     with tf.name_scope("predict_real_summary"):
         tf.summary.image("predict_real", tf.image.convert_image_dtype(model.predict_real, dtype=tf.uint8))
@@ -582,7 +595,7 @@ def main():
     with tf.name_scope("parameter_count"):
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
 
-    saver = tf.train.Saver(max_to_keep=1)
+    saver = tf.train.Saver(max_to_keep=100)
 
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
@@ -603,29 +616,18 @@ def main():
         if a.mode == "test":
             # testing
             # at most, process the test data once
-            start = time.time()
             max_steps = min(examples.steps_per_epoch, max_steps)
-            index_path = None
 
             for step in range(max_steps):
                 results = sess.run(display_fetches)
                 filesets = save_images(results)
-                for i, f in enumerate(filesets):
-                    print("evaluated image", f["name"])
-                index_path = append_index(filesets)
-
-            print("wrote index at", index_path)
-            print("rate", (time.time() - start) / max_steps)
+                print("wrote {} images".format(len(filesets)))
 
             # repeat the same for fits arrays
             for step in range(max_steps):
                 results = sess.run(fits_fetches)
                 filesets = save_images(results, subfolder="fits", extention="fits")
-                for i, f in enumerate(filesets):
-                    print("evaluated fits", f["name"])
-                index_path = append_index(filesets)
-            print("wrote index at", index_path)
-            print("rate", (time.time() - start) / max_steps)
+                print("wrote {} fits files".format(len(filesets)))
 
         else:
             # training
