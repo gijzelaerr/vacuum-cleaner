@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import tensorflow as tf
 import numpy as np
 import argparse
@@ -12,8 +8,8 @@ import math
 import time
 
 from vacuum.io import load_data, fits_encode, save_images, deprocess
-
 from vacuum.model import create_model
+from vacuum.util import shift
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input_dir", help="path to folder containing images")
@@ -90,16 +86,23 @@ def main():
                              input_multiply=a.input_multiply, start=a.data_start, end=a.data_end)
     steps_per_epoch = int(math.ceil(count / a.batch_size))
     iter = batch.make_one_shot_iterator()
-    index, dirty, skymodel = iter.get_next()
+    index, psf, dirty, skymodel = iter.get_next()
     print("examples count = %d" % count)
 
-    # inputs and targets are [batch_size, height, width, channels]
+    # inputs and targets are [batch_size, height, width, channelsa]
     model = create_model(dirty, skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
                          l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf)
 
     deprocessed_input = deprocess(dirty, a.input_multiply)
     deprocessed_target = deprocess(skymodel, a.input_multiply)
-    deprocessed_ouput = deprocess(model.outputs, a.input_multiply)
+    deprocessed_output = deprocess(model.outputs, a.input_multiply)
+    deprocessed_psf = deprocess(psf, a.input_multiply)
+
+    with tf.name_scope("calculate_residuals"):
+        shifted = shift(deprocessed_psf, y=-1, x=-1)
+        filter_ = tf.expand_dims(tf.expand_dims(tf.squeeze(shifted), 2), 3)
+        convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
+        residuals = deprocessed_input - convolved
 
     # reverse any processing on images so they can be written to disk or displayed to user
     with tf.name_scope("convert_inputs"):
@@ -109,7 +112,13 @@ def main():
         converted_targets = tf.image.convert_image_dtype(deprocessed_target, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("convert_outputs"):
-        converted_outputs = tf.image.convert_image_dtype(deprocessed_ouput, dtype=tf.uint8, saturate=True)
+        converted_outputs = tf.image.convert_image_dtype(deprocessed_output, dtype=tf.uint8, saturate=True)
+
+    with tf.name_scope("convert_psfs"):
+        converted_psfs = tf.image.convert_image_dtype(deprocessed_psf, dtype=tf.uint8, saturate=True)
+
+    with tf.name_scope("convert_residuals"):
+        converted_residuals = tf.image.convert_image_dtype(residuals, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("encode_images"):
         display_fetches = {
@@ -117,6 +126,8 @@ def main():
             "inputs": tf.map_fn(tf.image.encode_png, converted_inputs, dtype=tf.string, name="input_pngs"),
             "targets": tf.map_fn(tf.image.encode_png, converted_targets, dtype=tf.string, name="target_pngs"),
             "outputs": tf.map_fn(tf.image.encode_png, converted_outputs, dtype=tf.string, name="output_pngs"),
+            "psfs": tf.map_fn(tf.image.encode_png, converted_psfs, dtype=tf.string, name="psf_pngs"),
+            "residuals": tf.map_fn(tf.image.encode_png, converted_residuals, dtype=tf.string, name="residual_pngs"),
         }
 
     with tf.name_scope("encode_fitss"):
@@ -124,7 +135,8 @@ def main():
             "indexs": index,
             "inputs": tf.map_fn(fits_encode, deprocessed_input, dtype=tf.string, name="input_fits"),
             "targets": tf.map_fn(fits_encode, deprocessed_target, dtype=tf.string, name="target_fits"),
-            "outputs": tf.map_fn(fits_encode, deprocessed_ouput, dtype=tf.string, name="output_fits"),
+            "outputs": tf.map_fn(fits_encode, deprocessed_output, dtype=tf.string, name="output_fits"),
+            "residuals": tf.map_fn(fits_encode, residuals, dtype=tf.string, name="residuals_fits"),
         }
 
     # summaries
@@ -179,17 +191,13 @@ def main():
             # at most, process the test data once
             max_steps = min(steps_per_epoch, max_steps)
 
-            for step in range(max_steps):
-                results = sess.run(display_fetches)
-                filesets = save_images(results, output_dir=a.output_dir)
-                for f in filesets:
-                    print("wrote " + str(f))
-
             # repeat the same for fits arrays
             for step in range(max_steps):
+                #results = sess.run(display_fetches)
                 results = sess.run(fits_fetches)
                 filesets = save_images(results, subfolder="fits", extention="fits", output_dir=a.output_dir)
-                print("wrote {} fits files".format(len(filesets)))
+                for f in filesets:
+                    print("wrote " + f['name'])
 
         else:
             # training

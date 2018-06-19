@@ -31,7 +31,13 @@ def transform(image, flip, seed, scale_size, crop_size):
 
 
 def load_data(path: str, crop_size: int, flip: bool, scale_size: int, max_epochs: int, batch_size: int,
-              input_multiply: float, start=None, end=None, types=("wsclean-dirty", "skymodel")):
+              input_multiply: float=1.0, start=None, end=None, types=("wsclean-psf", "wsclean-dirty", "skymodel")):
+    """
+    Point this to a path containing fits files fallowing naming schema <number>-<type>.fits
+
+    Returns: a tensorflow dataset generator
+    """
+
     p = Path(path)
 
     # find out our range
@@ -81,7 +87,7 @@ def load_data(path: str, crop_size: int, flip: bool, scale_size: int, max_epochs
 
     # processing
     p = lambda i: preprocess(i, input_multiply)
-    ds = ds.map(lambda a, b, c, d: (a, b, p(c), p(d)))  # don't preprocess the PSF
+    ds = ds.map(lambda a, b, c, d: (a, p(b), p(c), p(d)))
 
     ds = ds.repeat(max_epochs)
 
