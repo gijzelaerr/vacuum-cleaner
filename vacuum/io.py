@@ -31,8 +31,7 @@ def transform(image, flip, seed, scale_size, crop_size):
 
 
 def load_data(path: str, crop_size: int, flip: bool, scale_size: int, max_epochs: int, batch_size: int,
-              input_multiply: float, start=None, end=None):
-    types_ = ("wsclean-psf", "wsclean-dirty", "skymodel")
+              input_multiply: float, start=None, end=None, types=("wsclean-dirty", "skymodel")):
     p = Path(path)
 
     # find out our range
@@ -57,15 +56,23 @@ def load_data(path: str, crop_size: int, flip: bool, scale_size: int, max_epochs
     def dataset_generator():
         for i in range(min_, max_ + 1):
             # yield tuple of images, we need to add 1 channel per image
-            yield (i,) + tuple(fits_open(f"{path}/{i}-{j}.fits")[:, :, np.newaxis] for j in types_)
+            yield (i,) + tuple(fits_open(f"{path}/{i}-{j}.fits")[:, :, np.newaxis] for j in types)
 
     # synchronize seed for image operations so that we do the same operations to both
     # input and output images
     seed = random.randint(0, 2 ** 31 - 1)
 
+    shapes = {
+        "bigpsf-psf": (512, 512, 1),
+        "wsclean-dirty": (256, 256, 1),
+         "skymodel": (256, 256, 1),
+        "wsclean-psf": (256, 256, 1),
+
+    }
+
     ds = tf.data.Dataset.from_generator(dataset_generator,
-                                        output_shapes=((),) + ((256, 256, 1),) * len(types_),
-                                        output_types=(tf.int32,) + (tf.float32,) * len(types_)
+                                        output_shapes=((),) + tuple(shapes[i] for i in types),
+                                        output_types=(tf.int32,) + (tf.float32,) * len(types)
                                         )
 
     # transforming
@@ -74,7 +81,7 @@ def load_data(path: str, crop_size: int, flip: bool, scale_size: int, max_epochs
 
     # processing
     p = lambda i: preprocess(i, input_multiply)
-    ds = ds.map(lambda a, b, c, d: (a, p(b), p(c), p(d)))
+    ds = ds.map(lambda a, b, c, d: (a, b, p(c), p(d)))  # don't preprocess the PSF
 
     ds = ds.repeat(max_epochs)
 

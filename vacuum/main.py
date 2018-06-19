@@ -43,8 +43,10 @@ parser.add_argument("--lr", type=float, default=0.0002, help="initial learning r
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
-parser.add_argument("--input_multiply", type=float, default=1.0, help="use this to scale the input image")
 
+parser.add_argument("--input_multiply", type=float, default=1.0, help="use this to scale the input image")
+parser.add_argument("--data_start", type=int, help="start number of dataset subset")
+parser.add_argument("--data_end", type=int, help="end number of dataset subset")
 
 a = parser.parse_args()
 
@@ -85,10 +87,10 @@ def main():
         f.write(json.dumps(vars(a), sort_keys=True, indent=4))
 
     batch, count = load_data(a.input_dir, CROP_SIZE, a.flip, a.scale_size, a.max_epochs, a.batch_size,
-                             input_multiply=a.input_multiply)
+                             input_multiply=a.input_multiply, start=a.data_start, end=a.data_end)
     steps_per_epoch = int(math.ceil(count / a.batch_size))
     iter = batch.make_one_shot_iterator()
-    index, psf, dirty, skymodel = iter.get_next()
+    index, dirty, skymodel = iter.get_next()
     print("examples count = %d" % count)
 
     # inputs and targets are [batch_size, height, width, channels]
