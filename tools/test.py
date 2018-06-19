@@ -43,19 +43,19 @@ def main():
         for direction in ["AtoB", "BtoA"]:
             for dataset in ["facades", "maps"]:
                 name = dataset + "_" + direction
-                run("python pix2pix.py --mode train --input_dir /input/official/%s/train --output_dir /output/%s_train --display_freq 1 --max_steps 1 --which_direction %s --seed 0" % (dataset, name, direction))
-                run("python pix2pix.py --mode test --input_dir /input/official/%s/val --output_dir /output/%s_test --display_freq 1 --max_steps 1 --checkpoint /output/%s_train --seed 0" % (dataset, name, name))
+                run("python main.py --mode train --input_dir /input/official/%s/train --output_dir /output/%s_train --display_freq 1 --max_steps 1 --which_direction %s --seed 0" % (dataset, name, direction))
+                run("python main.py --mode test --input_dir /input/official/%s/val --output_dir /output/%s_test --display_freq 1 --max_steps 1 --checkpoint /output/%s_train --seed 0" % (dataset, name, name))
 
             dataset = "color-lab"
             name = dataset + "_" + direction
-            run("python pix2pix.py --mode train --input_dir /input/%s/train --output_dir /output/%s_train --display_freq 1 --max_steps 1 --which_direction %s --lab_colorization --seed 0" % (dataset, name, direction))
-            run("python pix2pix.py --mode test --input_dir /input/%s/val --output_dir /output/%s_test --display_freq 1 --max_steps 1 --checkpoint /output/%s_train --seed 0" % (dataset, name, name))
+            run("python main.py --mode train --input_dir /input/%s/train --output_dir /output/%s_train --display_freq 1 --max_steps 1 --which_direction %s --lab_colorization --seed 0" % (dataset, name, direction))
+            run("python main.py --mode test --input_dir /input/%s/val --output_dir /output/%s_test --display_freq 1 --max_steps 1 --checkpoint /output/%s_train --seed 0" % (dataset, name, name))
 
         # using pretrained model
         # for dataset, direction in [("facades", "BtoA")]:
         #     name = dataset + "_" + direction
-        #     run("python pix2pix.py --mode test --output_dir test/%s_pretrained_test --input_dir /input/official/%s/val --max_steps 100 --which_direction %s --seed 0 --checkpoint /input/pretrained/%s" % (name, dataset, direction, name))
-        #     run("python pix2pix.py --mode export --output_dir test/%s_pretrained_export --checkpoint /input/pretrained/%s" % (name, name))
+        #     run("python main.py --mode test --output_dir test/%s_pretrained_test --input_dir /input/official/%s/val --max_steps 100 --which_direction %s --seed 0 --checkpoint /input/pretrained/%s" % (name, dataset, direction, name))
+        #     run("python main.py --mode export --output_dir test/%s_pretrained_export --checkpoint /input/pretrained/%s" % (name, name))
 
     print("elapsed", int(time.time() - start))
 

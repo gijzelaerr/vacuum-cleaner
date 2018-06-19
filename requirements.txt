@@ -3,3 +3,5 @@ astropy
 scipy
 notebook
 ipython
+matplotlib
+pillow
