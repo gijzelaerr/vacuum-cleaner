@@ -43,16 +43,19 @@ def load_data(path: str, crop_size: int, flip: bool, scale_size: int, max_epochs
     # find out our range
     r = re.compile('.*/(\d+)-skymodel.fits')
     ints = sorted([int(r.match(str(i)).group(1)) for i in p.glob("*-skymodel.fits")])
-    min_, max_ = ints[0], ints[-1]
+    if len(ints) > 1:
+        min_, max_ = ints[0], ints[-1]
+    else:
+        min_, max_ = 0, 1
 
     if start:
-        if min_ < start < max_:
+        if min_ <= start < max_:
             min_ = start
         else:
             raise Exception("start out of range")
 
     if end:
-        if min_ < end < max_:
+        if min_ < end <= max_:
             max_ = end
         else:
             raise Exception("end out of range")

@@ -89,8 +89,11 @@ def main():
     index, psf, dirty, skymodel = iter.get_next()
     print("examples count = %d" % count)
 
+    # experiment to see if adding the psf as a channel makes a difference
+    dirty_psf = tf.concat([dirty, psf], axis=3)
+
     # inputs and targets are [batch_size, height, width, channelsa]
-    model = create_model(dirty, skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
+    model = create_model(dirty_psf, skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
                          l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf)
 
     deprocessed_input = deprocess(dirty, a.input_multiply)
@@ -149,6 +152,12 @@ def main():
     with tf.name_scope("outputs_summary"):
         tf.summary.image("outputs", converted_outputs)
 
+    with tf.name_scope("psfs_summary"):
+        tf.summary.image("psfss", converted_psfs)
+
+    with tf.name_scope("residuals_summary"):
+        tf.summary.image("residuals", converted_residuals)
+
     with tf.name_scope("predict_real_summary"):
         tf.summary.image("predict_real", tf.image.convert_image_dtype(model.predict_real, dtype=tf.uint8))
 
@@ -193,7 +202,6 @@ def main():
 
             # repeat the same for fits arrays
             for step in range(max_steps):
-                #results = sess.run(display_fetches)
                 results = sess.run(fits_fetches)
                 filesets = save_images(results, subfolder="fits", extention="fits", output_dir=a.output_dir)
                 for f in filesets:

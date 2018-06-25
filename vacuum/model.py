@@ -111,7 +111,6 @@ def create_discriminator(discrim_inputs, discrim_targets, ndf: int):
 
 
 def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_weight, lr, beta1):
-    # with tf.device('/device:GPU:0'):
     with tf.variable_scope("generator"):
         out_channels = 1
         outputs = create_generator(inputs, out_channels, ngf, separable_conv)
