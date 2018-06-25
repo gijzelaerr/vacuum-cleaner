@@ -9,4 +9,5 @@ scratch/
 .venv-cpu/
 .vscode/
 notebooks/.ipynb_checkpoints/
-
+train/
+.venv*/
