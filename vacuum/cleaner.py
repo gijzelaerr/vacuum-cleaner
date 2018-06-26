@@ -1,38 +1,23 @@
 import tensorflow as tf
 import os
-import math
 import sys
 import numpy as np
 
 from vacuum.io import fits_encode, save_images, deprocess, preprocess, fits_open
 from vacuum.model import create_model
-from vacuum.util import shift, get_prefix
+from vacuum.util import shift, get_prefix, AttrDict
 from typing import List
-
-
-class AttrDict(dict):
-    def __init__(self, *args, **kwargs):
-        super(AttrDict, self).__init__(*args, **kwargs)
-        self.__dict__ = self
-
-
-here = os.path.dirname(os.path.realpath(__file__))
 
 EPS = 1e-12
 CROP_SIZE = 256
-a = AttrDict()
 
-a.batch_size = 1
+a = AttrDict()
 a.beta1 = 0.5
 a.checkpoint = os.path.join(get_prefix(), "share/vacuum/model")
-a.data_end = 1800
-a.data_start = 0
-a.flip = False
 a.gan_weight = 1.0
 a.input_multiply = 1.0
 a.l1_weight = 100.0
 a.lr = 0.0002
-a.max_epochs = None
 a.ndf = 64
 a.ngf = 64
 a.output_dir = "."
@@ -51,12 +36,9 @@ def load_data(dirties: List[str], psfs: List[str], input_multiply: float=1.0):
                                         output_shapes=((),) + ((256, 256, 1),) * 2,
                                         output_types=(tf.int32,) + (tf.float32,) * 2)
 
-    # processing
     p = lambda i: preprocess(i, input_multiply)
     ds = ds.map(lambda a, b, c: (a, p(b), p(c)))
-
     ds = ds.batch(count)
-
     return ds, count
 
 
@@ -74,13 +56,12 @@ usage: {sys.argv[0]}  dirty-0.fits,dirty-1.fits,dirty-2.fits  psf-0.fits,psf-1.f
     psfs = [os.path.realpath(i) for i in sys.argv[2].split(',')]
     assert len(dirties) == len(psfs)
     batch, count = load_data(dirties, psfs)
-    steps_per_epoch = int(math.ceil(count / a.batch_size))
+    steps_per_epoch = count
     iter = batch.make_one_shot_iterator()
     index, dirty, psf = iter.get_next()
 
     input_ = tf.concat([dirty, psf], axis=3)
 
-    # inputs and targets are [batch_size, height, width, channels]
     model = create_model(input_, dirty, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
                          l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf)
 
@@ -101,15 +82,10 @@ usage: {sys.argv[0]}  dirty-0.fits,dirty-1.fits,dirty-2.fits  psf-0.fits,psf-1.f
             "residuals": tf.map_fn(fits_encode, residuals, dtype=tf.string, name="residuals_fits"),
         }
 
-    saver = tf.train.Saver(max_to_keep=100)
+    with tf.Session() as sess:
+        checkpoint = tf.train.latest_checkpoint(a.checkpoint)
+        tf.train.Saver().restore(sess, checkpoint)
 
-    sv = tf.train.Supervisor(logdir=None, save_summaries_secs=0, saver=None)
-    with sv.managed_session() as sess:
-        if a.checkpoint is not None:
-            checkpoint = tf.train.latest_checkpoint(a.checkpoint)
-            saver.restore(sess, checkpoint)
-
-        # repeat the same for fits arrays
         for step in range(steps_per_epoch):
             results = sess.run(fits_fetches)
             filesets = save_images(results, subfolder=None, extention="fits", output_dir=a.output_dir)

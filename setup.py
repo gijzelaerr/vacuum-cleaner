@@ -8,13 +8,12 @@ install_requires = [
     'astropy',
 ]
 
-extra_require = {
-    'gpu': 'tensorflow-gpu'
+extras_require = {
+    'gpu': ['tensorflow-gpu'],
 }
 
 data_files = [
     ('share/vacuum/model', [
-        # 'share/vacuum/model/model-30000.data-00000-of-00001',
         'share/vacuum/model/model-30000.meta',
         'share/vacuum/model/model-30000.index',
         'share/vacuum/model/checkpoint',
@@ -28,7 +27,7 @@ setup(
     packages=find_packages(),
     data_files=data_files,
     install_requires=install_requires,
-    extra_require=extra_require,
+    extras_require=extras_require,
     author="Gijs Molenaar",
     author_email="gijs@pythonic.nl",
     description="Deep Vacuum Cleaner",

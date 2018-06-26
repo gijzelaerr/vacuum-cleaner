@@ -31,3 +31,9 @@ def get_prefix(file: str='share/vacuum/model/checkpoint'):
         if path.isfile(path.join(option, file)):
             return option
     raise Exception("Can't find vacuum installation")
+
+
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
