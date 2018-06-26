@@ -1,6 +1,6 @@
 # Deep Vacuum Cleaner
 
-Radio telescope deconvolultion version of the tensorflow implementation of pix2pix. 
+Radio telescope deconvolulion version of the tensorflow implementation of pix2pix. 
 
 Based on [pix2pix-tensorflow](https://github.com/affinelayer/pix2pix-tensorflow)
 
@@ -8,7 +8,6 @@ Whch is based on [pix2pix](https://phillipi.github.io/pix2pix/) by Isola et al.
 
 [Article about this implemention](https://affinelayer.com/pix2pix/)
 
-[Interactive Demo](https://affinelayer.com/pixsrv/)
 
 ## Setup
 
