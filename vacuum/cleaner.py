@@ -39,7 +39,6 @@ a.output_dir = "."
 a.scale_size = CROP_SIZE
 a.separable_conv = False
 
-print(os.listdir(a.checkpoint))
 
 def load_data(dirties: List[str], psfs: List[str], input_multiply: float=1.0):
     count = len(dirties)
