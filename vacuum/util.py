@@ -1,6 +1,6 @@
 from tensorflow import image
 from functools import lru_cache
-from os import path
+from os import path, getcwd
 
 
 def shift(i, x=0, y=0):
@@ -24,7 +24,9 @@ def get_prefix(file: str='share/vacuum/model/checkpoint'):
         str: path to Python installation prefix
     """
     local = path.dirname(path.dirname(path.abspath(__file__)))
-    options = [local, path.expanduser('~/.local'), '/usr/local', '/usr/']
+    here = getcwd()
+
+    options = [here, local, path.expanduser('~/.local'), '/usr/local', '/usr/']
     for option in options:
         if path.isfile(path.join(option, file)):
             return option

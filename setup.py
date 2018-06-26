@@ -14,16 +14,18 @@ extra_require = {
 
 data_files = [
     ('share/vacuum/model', [
-        'share/vacuum/model/model-30000.data-00000-of-00001',
+        # 'share/vacuum/model/model-30000.data-00000-of-00001',
         'share/vacuum/model/model-30000.meta',
         'share/vacuum/model/model-30000.index',
+        'share/vacuum/model/checkpoint',
+
     ])
 ]
 
 setup(
     name='vacuum-cleaner',
     version=__version__,
-    packages=find_packages(where='vacuum'),
+    packages=find_packages(),
     data_files=data_files,
     install_requires=install_requires,
     extra_require=extra_require,
