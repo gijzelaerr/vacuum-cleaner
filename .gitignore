@@ -11,3 +11,6 @@ scratch/
 notebooks/.ipynb_checkpoints/
 train/
 .venv*/
+dist/
+*.egg-info/
+

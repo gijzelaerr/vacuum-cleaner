@@ -1,0 +1,10 @@
+include LICENSE
+include README.MD
+include share/vacuum/model/model-30000.data-00000-of-00001
+include share/vacuum/model/model-30000.meta
+include share/vacuum/model/model-30000.index
+include vacuum/*.py
+exclude build
+exclude dist
+exclude train
+exclude test

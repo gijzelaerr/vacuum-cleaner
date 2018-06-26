@@ -43,6 +43,8 @@ parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN
 parser.add_argument("--input_multiply", type=float, default=1.0, help="use this to scale the input image")
 parser.add_argument("--data_start", type=int, help="start number of dataset subset")
 parser.add_argument("--data_end", type=int, help="end number of dataset subset")
+parser.add_argument('--disable_psf', action='store_true', help="disable the concatenation of the PSF as a channel")
+
 
 a = parser.parse_args()
 
@@ -89,11 +91,13 @@ def main():
     index, psf, dirty, skymodel = iter.get_next()
     print("examples count = %d" % count)
 
-    # experiment to see if adding the psf as a channel makes a difference
-    dirty_psf = tf.concat([dirty, psf], axis=3)
+    if a.disable_psf:
+        input_ = dirty
+    else:
+        input_ = tf.concat([dirty, psf], axis=3)
 
     # inputs and targets are [batch_size, height, width, channelsa]
-    model = create_model(dirty_psf, skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
+    model = create_model(input_, skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
                          l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf)
 
     deprocessed_input = deprocess(dirty, a.input_multiply)

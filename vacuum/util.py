@@ -1,4 +1,6 @@
 from tensorflow import image
+from functools import lru_cache
+from os import path
 
 
 def shift(i, x=0, y=0):
@@ -12,3 +14,18 @@ def shift(i, x=0, y=0):
         max(0, x),
         i.shape.as_list()[1] + abs(y),
         i.shape.as_list()[2] + abs(x))
+
+
+@lru_cache(maxsize=1)
+def get_prefix(file: str='share/vacuum/model/checkpoint'):
+    """
+    Returns the Python prefix where vacuum is installed
+    returns:
+        str: path to Python installation prefix
+    """
+    local = path.dirname(path.dirname(path.abspath(__file__)))
+    options = [local, path.expanduser('~/.local'), '/usr/local', '/usr/']
+    for option in options:
+        if path.isfile(path.join(option, file)):
+            return option
+    raise Exception("Can't find vacuum installation")

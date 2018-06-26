@@ -117,7 +117,10 @@ def fits_encode(image):
 
 
 def save_images(fetches, output_dir: str, step=None, subfolder="images", extention="png"):
-    image_dir = os.path.join(output_dir, subfolder)
+    if subfolder:
+        image_dir = os.path.join(output_dir, subfolder)
+    else:
+        image_dir = output_dir
     if not os.path.exists(image_dir):
         os.makedirs(image_dir)
 
@@ -146,3 +149,5 @@ def deprocess(image, input_multiply: float):
     with tf.name_scope("deprocess"):
         # [-1, 1] => [0, 10]
         return ((image + 1) * 5) / input_multiply
+
+

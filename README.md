@@ -1,4 +1,4 @@
-# pix2pix-tensorflow
+# Deep Vacuum Cleaner
 
 Based on [pix2pix-tensorflow](https://github.com/affinelayer/pix2pix-tensorflow)
 
