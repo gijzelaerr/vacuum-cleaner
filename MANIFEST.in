@@ -1,8 +1,8 @@
 include LICENSE
 include README.MD
-recursive-include share/
-recursive-include vacuum/
-recursive-exclude build
-recursive-exclude dist
-recursive-exclude train
-recursive-exclude test
+recursive-include share/ *
+recursive-include vacuum/ *.py
+recursive-exclude build *
+recursive-exclude dist *
+recursive-exclude train *
+recursive-exclude test *
