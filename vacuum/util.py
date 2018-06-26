@@ -1,6 +1,7 @@
 from tensorflow import image
 from functools import lru_cache
 from os import path, getcwd
+import sys
 
 
 def shift(i, x=0, y=0):
@@ -26,7 +27,7 @@ def get_prefix(file: str='share/vacuum/model/checkpoint'):
     local = path.dirname(path.dirname(path.abspath(__file__)))
     here = getcwd()
 
-    options = [here, local, path.expanduser('~/.local'), '/usr/local', '/usr/']
+    options = [sys.prefix, here, local, path.expanduser('~/.local'), '/usr/local', '/usr/']
     for option in options:
         if path.isfile(path.join(option, file)):
             return option
