@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-__version__ = "0.1.1"
+__version__ = "0.1.3"
 
 
 install_requires = [
@@ -21,6 +21,9 @@ data_files = [
     ])
 ]
 
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
 setup(
     name='vacuum-cleaner',
     version=__version__,
@@ -31,10 +34,9 @@ setup(
     author="Gijs Molenaar",
     author_email="gijs@pythonic.nl",
     description="Deep Vacuum Cleaner",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     license="MIT",
-    # setup_requires=['pytest-runner'],
-    # tests_require=['pytest', 'mock'],
-    # test_suite="tests",
     keywords="radio astronomy deep learning cleaning science",
     url="https://github.com/gijzelaerr/vacuum-cleaner",
     classifiers=[
@@ -49,7 +51,6 @@ setup(
               ],
     entry_points={
       'console_scripts': [
-        # 'vacuum = vacuum.cleaner:main',
         'vacuum-cleaner = vacuum.cleaner:main',
         ]
     }

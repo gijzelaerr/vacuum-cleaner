@@ -1,3 +1,6 @@
+"""
+This is the cleaning (testing) only code used for the vacuum-clean command
+"""
 import tensorflow as tf
 import os
 import sys

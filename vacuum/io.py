@@ -1,3 +1,6 @@
+"""
+Data ingestion logic
+"""
 import os
 import random
 import re
