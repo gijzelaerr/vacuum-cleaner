@@ -13,7 +13,8 @@ Radio telescope deconvolultion version of the tensorflow implementation of pix2p
 ## Setup
 
 ### Prerequisites
-- Tensorflow 1.4.1
+- python 3.6
+- Tensorflow 
 
 ### Recommended
 - Linux with Tensorflow GPU edition + cuDNN
