@@ -18,7 +18,6 @@ a = AttrDict()
 a.beta1 = 0.5
 a.checkpoint = os.path.join(get_prefix(), "share/vacuum/model")
 a.gan_weight = 1.0
-a.input_multiply = 1.0
 a.l1_weight = 100.0
 a.lr = 0.0002
 a.ndf = 64
@@ -28,19 +27,21 @@ a.scale_size = CROP_SIZE
 a.separable_conv = False
 
 
-def load_data(dirties: List[str], psfs: List[str], input_multiply: float=1.0):
+def load_data(dirties: List[str], psfs: List[str]):
     count = len(dirties)
 
     def dataset_generator():
-        for i, files in enumerate(zip(dirties, psfs)):
-            yield (i,) + tuple(fits_open(j)[:, :, np.newaxis] for j in files)
+        for i, (dirty_path, psf_path) in enumerate(zip(dirties, psfs)):
+            psf = fits_open(psf_path)[:, :, np.newaxis]
+            dirty = fits_open(dirty_path)[:, :, np.newaxis]
+            min_flux = dirty.min()
+            max_flux = dirty.max()
+            yield i, min_flux, max_flux, psf, dirty
 
     ds = tf.data.Dataset.from_generator(dataset_generator,
-                                        output_shapes=((),) + ((256, 256, 1),) * 2,
-                                        output_types=(tf.int32,) + (tf.float32,) * 2)
+                                        output_shapes=((), (), ()) + ((256, 256, 1),) * 2,
+                                        output_types=(tf.int32, tf.float32, tf.float32) + (tf.float32,) * 2)
 
-    p = lambda i: preprocess(i, input_multiply)
-    ds = ds.map(lambda a, b, c: (a, p(b), p(c)))
     ds = ds.batch(count)
     return ds, count
 
@@ -61,22 +62,23 @@ usage: {sys.argv[0]}  dirty-0.fits,dirty-1.fits,dirty-2.fits  psf-0.fits,psf-1.f
     batch, count = load_data(dirties, psfs)
     steps_per_epoch = count
     iter = batch.make_one_shot_iterator()
-    index, dirty, psf = iter.get_next()
+    index, min_flux, max_flux, psf, dirty = iter.get_next()
 
-    input_ = tf.concat([dirty, psf], axis=3)
+    scaled_dirty = preprocess(dirty, min_flux, max_flux)
+    scaled_psf = (psf * 2) - 1
 
-    model = create_model(input_, dirty, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
+    input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
+
+    model = create_model(input_, scaled_dirty, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
                          l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf)
 
-    deprocessed_input = deprocess(dirty, a.input_multiply)
-    deprocessed_output = deprocess(model.outputs, a.input_multiply)
-    deprocessed_psf = deprocess(psf, a.input_multiply)
+    deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
 
     with tf.name_scope("calculate_residuals"):
-        shifted = shift(deprocessed_psf, y=-1, x=-1)
+        shifted = shift(psf, y=-1, x=-1)
         filter_ = tf.expand_dims(tf.expand_dims(tf.squeeze(shifted), 2), 3)
         convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
-        residuals = deprocessed_input - convolved
+        residuals = dirty - convolved
 
     with tf.name_scope("encode_fitss"):
         fits_fetches = {
