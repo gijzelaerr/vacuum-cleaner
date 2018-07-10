@@ -10,7 +10,7 @@ import random
 import math
 import time
 
-from vacuum.io import load_data, fits_encode, save_images, deprocess
+from vacuum.io import load_data, fits_encode, save_images, deprocess, preprocess
 from vacuum.model import create_model
 from vacuum.util import shift
 
@@ -43,7 +43,6 @@ parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of a
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
 
-parser.add_argument("--input_multiply", type=float, default=1.0, help="use this to scale the input image")
 parser.add_argument("--data_start", type=int, help="start number of dataset subset")
 parser.add_argument("--data_end", type=int, help="end number of dataset subset")
 parser.add_argument('--disable_psf', action='store_true', help="disable the concatenation of the PSF as a channel")
@@ -88,44 +87,46 @@ def main():
         f.write(json.dumps(vars(a), sort_keys=True, indent=4))
 
     batch, count = load_data(a.input_dir, CROP_SIZE, a.flip, a.scale_size, a.max_epochs, a.batch_size,
-                             input_multiply=a.input_multiply, start=a.data_start, end=a.data_end)
+                             start=a.data_start, end=a.data_end)
     steps_per_epoch = int(math.ceil(count / a.batch_size))
     iter = batch.make_one_shot_iterator()
-    index, psf, dirty, skymodel = iter.get_next()
+    index, min_flux, max_flux, psf, dirty, skymodel = iter.get_next()
     print("examples count = %d" % count)
 
-    if a.disable_psf:
-        input_ = dirty
-    else:
-        input_ = tf.concat([dirty, psf], axis=3)
+    with tf.name_scope("scaling_flux"):
+        scaled_skymodel = preprocess(skymodel, min_flux, max_flux)
+        scaled_dirty = preprocess(dirty, min_flux, max_flux)
+        scaled_psf = (psf * 2) - 1
 
-    # inputs and targets are [batch_size, height, width, channelsa]
-    model = create_model(input_, skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
+    if a.disable_psf:
+        input_ = scaled_dirty
+    else:
+        input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
+
+    # inputs and targets are [batch_size, height, width, channels]
+    model = create_model(input_, scaled_skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
                          l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf)
 
-    deprocessed_input = deprocess(dirty, a.input_multiply)
-    deprocessed_target = deprocess(skymodel, a.input_multiply)
-    deprocessed_output = deprocess(model.outputs, a.input_multiply)
-    deprocessed_psf = deprocess(psf, a.input_multiply)
+    deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
 
     with tf.name_scope("calculate_residuals"):
-        shifted = shift(deprocessed_psf, y=-1, x=-1)
+        shifted = shift(psf, y=-1, x=-1)
         filter_ = tf.expand_dims(tf.expand_dims(tf.squeeze(shifted), 2), 3)
         convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
-        residuals = deprocessed_input - convolved
+        residuals = dirty - convolved
 
     # reverse any processing on images so they can be written to disk or displayed to user
     with tf.name_scope("convert_inputs"):
-        converted_inputs = tf.image.convert_image_dtype(deprocessed_input, dtype=tf.uint8, saturate=True)
+        converted_inputs = tf.image.convert_image_dtype(dirty, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("convert_targets"):
-        converted_targets = tf.image.convert_image_dtype(deprocessed_target, dtype=tf.uint8, saturate=True)
+        converted_targets = tf.image.convert_image_dtype(skymodel, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("convert_outputs"):
         converted_outputs = tf.image.convert_image_dtype(deprocessed_output, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("convert_psfs"):
-        converted_psfs = tf.image.convert_image_dtype(deprocessed_psf, dtype=tf.uint8, saturate=True)
+        converted_psfs = tf.image.convert_image_dtype(psf, dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("convert_residuals"):
         converted_residuals = tf.image.convert_image_dtype(residuals, dtype=tf.uint8, saturate=True)
@@ -143,8 +144,8 @@ def main():
     with tf.name_scope("encode_fitss"):
         fits_fetches = {
             "indexs": index,
-            "inputs": tf.map_fn(fits_encode, deprocessed_input, dtype=tf.string, name="input_fits"),
-            "targets": tf.map_fn(fits_encode, deprocessed_target, dtype=tf.string, name="target_fits"),
+            "inputs": tf.map_fn(fits_encode, dirty, dtype=tf.string, name="input_fits"),
+            "targets": tf.map_fn(fits_encode, skymodel, dtype=tf.string, name="target_fits"),
             "outputs": tf.map_fn(fits_encode, deprocessed_output, dtype=tf.string, name="output_fits"),
             "residuals": tf.map_fn(fits_encode, residuals, dtype=tf.string, name="residuals_fits"),
         }

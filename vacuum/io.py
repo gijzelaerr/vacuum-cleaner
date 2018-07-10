@@ -34,11 +34,11 @@ def transform(image, flip, seed, scale_size, crop_size):
 
 
 def load_data(path: str, crop_size: int, flip: bool, scale_size: int, max_epochs: int, batch_size: int,
-              input_multiply: float=1.0, start=None, end=None, types=("wsclean-psf", "wsclean-dirty", "skymodel")):
+              start=None, end=None):
     """
     Point this to a path containing fits files fallowing naming schema <number>-<type>.fits
 
-    Returns: a tensorflow dataset generator
+    Returns: a tensorflow dataset generator of dimensions [batch_size, x, y, channels]
     """
 
     p = Path(path)
@@ -67,33 +67,24 @@ def load_data(path: str, crop_size: int, flip: bool, scale_size: int, max_epochs
 
     def dataset_generator():
         for i in range(min_, max_ + 1):
-            # yield tuple of images, we need to add 1 channel per image
-            yield (i,) + tuple(fits_open(f"{path}/{i}-{j}.fits")[:, :, np.newaxis] for j in types)
-
-    # synchronize seed for image operations so that we do the same operations to both
-    # input and output images
-    seed = random.randint(0, 2 ** 31 - 1)
-
-    shapes = {
-        "bigpsf-psf": (512, 512, 1),
-        "wsclean-dirty": (256, 256, 1),
-         "skymodel": (256, 256, 1),
-        "wsclean-psf": (256, 256, 1),
-
-    }
+            # add one channel
+            psf = fits_open(f"{path}/{i}-wsclean-psf.fits")[:, :, np.newaxis]
+            dirty = fits_open(f"{path}/{i}-wsclean-dirty.fits")[:, :, np.newaxis]
+            skymodel = fits_open(f"{path}/{i}-skymodel.fits")[:, :, np.newaxis]
+            min_flux = dirty.min()
+            max_flux = dirty.max()
+            yield i, min_flux, max_flux, psf, dirty, skymodel
 
     ds = tf.data.Dataset.from_generator(dataset_generator,
-                                        output_shapes=((),) + tuple(shapes[i] for i in types),
-                                        output_types=(tf.int32,) + (tf.float32,) * len(types)
+                                        output_shapes=((), (), ()) + ((256, 256, 1),) * 3,
+                                        output_types=(tf.int32, tf.float32, tf.float32) + (tf.float32,) * 3
                                         )
 
     # transforming
+    # synchronize seed for image operations so that we do the same operations on all
+    seed = random.randint(0, 2 ** 31 - 1)
     t = lambda i: transform(i, flip, seed, scale_size, crop_size)
-    ds = ds.map(lambda a, b, c, d: (a, t(b), t(c), t(d)))
-
-    # processing
-    p = lambda i: preprocess(i, input_multiply)
-    ds = ds.map(lambda a, b, c, d: (a, p(b), p(c), p(d)))
+    ds = ds.map(lambda i, mn, mx, psf, drty, skmd: (i, mn, mx, t(psf), t(drty), t(skmd)))
 
     ds = ds.repeat(max_epochs)
 
@@ -141,16 +132,17 @@ def save_images(fetches, output_dir: str, step=None, subfolder="images", extenti
     return filesets
 
 
-def preprocess(image, input_multiply: float):
-    # we assume a max flux scale of 10 Jy
+def preprocess(image, min_, max_):
     with tf.name_scope("preprocess"):
-        # [0, 10 => [-1, 1]
-        return ((image * input_multiply) / 5) - 1
+        #return ((image - min_[:, None, None, None]) / ((max_ - min_)[:, None, None, None] / 2.0)) - 1
+        #return (image / 5) - 1
+        return (image / (max_/2.0)[:, None, None, None]) - 1
 
 
-def deprocess(image, input_multiply: float):
+def deprocess(image, min_, max_):
     with tf.name_scope("deprocess"):
-        # [-1, 1] => [0, 10]
-        return ((image + 1) * 5) / input_multiply
+        #return ((image + 1) * ((max_ - min_)[:, None, None, None] / 2.0)) + min_[:, None, None, None]
+        #return (image + 1) * 5
+        return (image + 1) * (max_/2.0)[:, None, None, None]
 
 
