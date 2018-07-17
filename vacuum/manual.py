@@ -98,6 +98,10 @@ def main():
         scaled_dirty = preprocess(dirty, min_flux, max_flux)
         scaled_psf = (psf * 2) - 1
 
+    #vis = tf.fft2d(tf.complex(scaled_dirty, tf.zeros(shape=(a.batch_size, CROP_SIZE, CROP_SIZE, 1))))
+    #real = tf.real(vis)
+    #imag = tf.imag(vis)
+
     if a.disable_psf:
         input_ = scaled_dirty
     else:
@@ -115,21 +119,17 @@ def main():
         convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
         residuals = dirty - convolved
 
+    def visual_scaling(img):
+        """ go from (-1, 1) to (0, 1)"""
+        return (img + 1) / 2
+
     # reverse any processing on images so they can be written to disk or displayed to user
-    with tf.name_scope("convert_inputs"):
-        converted_inputs = tf.image.convert_image_dtype(dirty, dtype=tf.uint8, saturate=True)
-
-    with tf.name_scope("convert_targets"):
-        converted_targets = tf.image.convert_image_dtype(skymodel, dtype=tf.uint8, saturate=True)
-
-    with tf.name_scope("convert_outputs"):
-        converted_outputs = tf.image.convert_image_dtype(deprocessed_output, dtype=tf.uint8, saturate=True)
-
-    with tf.name_scope("convert_psfs"):
-        converted_psfs = tf.image.convert_image_dtype(psf, dtype=tf.uint8, saturate=True)
-
-    with tf.name_scope("convert_residuals"):
-        converted_residuals = tf.image.convert_image_dtype(residuals, dtype=tf.uint8, saturate=True)
+    with tf.name_scope("convert_images"):
+        converted_inputs = tf.image.convert_image_dtype(visual_scaling(scaled_dirty), dtype=tf.uint8, saturate=True)
+        converted_targets = tf.image.convert_image_dtype(visual_scaling(scaled_skymodel), dtype=tf.uint8, saturate=True)
+        converted_outputs = tf.image.convert_image_dtype(visual_scaling(model.outputs), dtype=tf.uint8, saturate=True)
+        converted_psfs = tf.image.convert_image_dtype(visual_scaling(scaled_psf), dtype=tf.uint8, saturate=True)
+        converted_residuals = tf.image.convert_image_dtype(visual_scaling(residuals), dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("encode_images"):
         display_fetches = {
@@ -151,20 +151,14 @@ def main():
         }
 
     # summaries
-    with tf.name_scope("inputs_summary"):
+    with tf.name_scope("combined_summary"):
         tf.summary.image("inputs", converted_inputs)
-
-    with tf.name_scope("targets_summary"):
-        tf.summary.image("targets", converted_targets)
-
-    with tf.name_scope("outputs_summary"):
         tf.summary.image("outputs", converted_outputs)
+        tf.summary.image("targets", converted_targets)
+        tf.summary.image("residuals", converted_residuals)
 
     with tf.name_scope("psfs_summary"):
         tf.summary.image("psfss", converted_psfs)
-
-    with tf.name_scope("residuals_summary"):
-        tf.summary.image("residuals", converted_residuals)
 
     with tf.name_scope("predict_real_summary"):
         tf.summary.image("predict_real", tf.image.convert_image_dtype(model.predict_real, dtype=tf.uint8))
