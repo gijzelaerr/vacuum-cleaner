@@ -1,0 +1,6 @@
+Freeze the graph
+================
+
+```
+$ freeze_graph  --input_graph=./graph.pbtxt --input_checkpoint=./model-10000 --output_graph=frozen.pb --output_node_names=deprocess/mul
+```

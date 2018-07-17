@@ -10,6 +10,7 @@ scratch/
 .vscode/
 notebooks/.ipynb_checkpoints/
 train/
+train
 .venv*/
 dist/
 *.egg-info/

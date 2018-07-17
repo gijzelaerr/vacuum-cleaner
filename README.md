@@ -27,13 +27,14 @@ But the tensorflow-gpu package is not the most portable package available.
 ## Usage
 
 ```
-$ vacuum-clean dirty-0.fits,dirty-1.fits,dirty-2.fits  psf-0.fits,psf-1.fits,psf2.fits
+$ vacuum-clean dirty.fits psf.fits
 ```       
-Names don't matter, order does. only supports fits files of 256 256 for now. Will write output the current folder.
-       
+The PSF needs to be 256x256 (for now).       
+
 
 ## Training
 
-For now undocumented, but you should use ``vacuum.manual`` and the output of [spiel](https://github.com/gijzelaerr/spiel/).
+For now undocumented, but you should use ``vacuum.manual`` and the output of
+[spiel](https://github.com/gijzelaerr/spiel/) as training data.
 
 

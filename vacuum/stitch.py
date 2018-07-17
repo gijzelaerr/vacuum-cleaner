@@ -16,6 +16,7 @@ from vacuum.model import create_model
 from vacuum.util import get_prefix, AttrDict
 
 
+#graph_path = '/home/gijs/Work/vacuum-cleaner/train/meerkat16/frozen.pb'
 a = AttrDict()
 a.EPS = 1e-12
 a.beta1 = 0.5
@@ -29,6 +30,21 @@ a.ngf = 64
 a.output_dir = "."
 a.size = 256
 a.separable_conv = False
+
+
+def load_graph(frozen_graph_filename):
+    # We load the protobuf file from the disk and parse it to retrieve the
+    # unserialized graph_def
+    with tf.gfile.GFile(frozen_graph_filename, "rb") as f:
+        graph_def = tf.GraphDef()
+        graph_def.ParseFromString(f.read())
+
+    # Then, we import the graph_def into a new Graph and returns it
+    with tf.Graph().as_default() as graph:
+        # The name var will prefix every op/nodes in your graph
+        # Since we load everything in a new graph, this is not needed
+        tf.import_graph_def(graph_def, name="")
+    return graph
 
 
 def load_data(dirty_path, psf_path):
@@ -113,7 +129,13 @@ usage: {sys.argv[0]}  dirty.fits psf.fits
 
     deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
 
+    #graph = load_graph(graph_path)
+    #for op in graph.get_operations():
+    #    print(op.name)
+    #x = graph.get_tensor_by_name('deprocess/mul:0')
+
     queue = Queue()
+    #with tf.Session(graph=graph) as sess:
     with tf.Session() as sess:
         checkpoint = tf.train.latest_checkpoint(a.checkpoint)
         tf.train.Saver().restore(sess, checkpoint)

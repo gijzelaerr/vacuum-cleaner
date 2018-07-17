@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-__version__ = "0.1.3"
+__version__ = "0.2"
 
 
 install_requires = [
@@ -14,9 +14,12 @@ extras_require = {
 
 data_files = [
     ('share/vacuum/model', [
-        'share/vacuum/model/model-30000.meta',
-        'share/vacuum/model/model-30000.index',
         'share/vacuum/model/checkpoint',
+        'share/vacuum/model/graph.pbtxt',
+        'share/vacuum/model/model-10000.data-00000-of-00001',
+        'share/vacuum/model/model-10000.index',
+        'share/vacuum/model/model-10000.meta',
+
 
     ])
 ]
@@ -51,7 +54,7 @@ setup(
               ],
     entry_points={
       'console_scripts': [
-        'vacuum-cleaner = vacuum.cleaner:main',
+        'vacuum-cleaner = vacuum.stitch:main',
         ]
     }
 )
