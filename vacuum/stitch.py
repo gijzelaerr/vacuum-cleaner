@@ -8,7 +8,7 @@ import sys
 import numpy as np
 from itertools import product
 from astropy.io import fits
-from queue import Queue
+import queue
 import tensorflow as tf
 
 from vacuum.io import deprocess, preprocess, fits_open
@@ -29,7 +29,25 @@ a.ndf = 64
 a.ngf = 64
 a.output_dir = "."
 a.size = 256
+a.pad = 50
 a.separable_conv = False
+
+
+TL = (slice(None, a.size), slice(None, a.size))
+BL = (slice(-a.size, None), slice(None, a.size))
+TR = (slice(None, a.size), slice(-a.size, None))
+BR = (slice(-a.size, None), slice(-a.size, None))
+
+stride = a.size - a.pad * 2
+
+
+class IterableQueue(queue.Queue):
+    def __iter__(self):
+        while True:
+            try:
+                yield self.get_nowait()
+            except queue.Empty:
+                return
 
 
 def load_graph(frozen_graph_filename):
@@ -47,60 +65,96 @@ def load_graph(frozen_graph_filename):
     return graph
 
 
-def load_data(dirty_path, psf_path):
+def padded_generator(big_data, psf, n_r, n_c):
+    i = 0
+    for r, c in (TL, TR, BL, BR):  # step 1
+        #print(f"cleaning {i}: {r}, {c}")
+        stamp = big_data[r, c]
+        yield i, stamp.min(), stamp.max(), psf, stamp
+        i += 1
 
-    psf = fits_open(psf_path)[:, :, np.newaxis]
-    big_fits_data = fits_open(dirty_path)[:, :, np.newaxis]
+    for r in range(1, n_r):  # step 2: edges left right
+        start = stride * r
+        #print(f"cleaning {i}: {start}:{start + a.size}, :{a.size}")
+        stamp = big_data[start:start + a.size, :a.size]  # 0,0 -> r,0
+        yield i, stamp.min(), stamp.max(), psf, stamp
+        i += 1
 
-    print(f"PSF: {psf.shape}")
-    print(f"big FIST: {big_fits_data.shape}")
+        #print(f"cleaning {i}: {start}:{start + a.size}, {-a.size}:")
+        stamp = big_data[start:start + a.size, -a.size:]  # 0,c -> r,c
+        yield i, stamp.min(), stamp.max(), psf, stamp
+        i += 1
 
-    count = int(ceil(big_fits_data.shape[0] / a.size)) * int(ceil(big_fits_data.shape[1] / a.size))
+    for c in range(1, n_c):  # step 2: edges, top bottom
+        start = stride * c
+        #print(f"cleaning {i}: :{a.size}, {start}:{start + a.size}")
+        stamp = big_data[:a.size, start:start + a.size]  # 0,0 -> 0,c
+        yield i, stamp.min(), stamp.max(), psf, stamp
+        i += 1
+
+        #print(f"cleaning {i}: {-a.size}:, {start}:{start + a.size}")
+        stamp = big_data[-a.size:, start:start + a.size]  # 0,0 -> r,c
+        yield i, stamp.min(), stamp.max(), psf, stamp
+        i += 1
+
+    for r, c in product(range(1, n_r), range(1, n_c)):  # step 3
+        start_r = stride * r
+        start_c = stride * c
+        #print(f"cleaning {i}: {start_r}:{start_r + a.size}, {start_c}:{start_c + a.size}")
+        stamp = big_data[start_r:start_r + a.size, start_c:start_c + a.size]
+        yield i, stamp.min(), stamp.max(), psf, stamp
+        i += 1
+
+
+def load_data(big_data, psf_data, n_r, n_c):
+
+    print(f"PSF: {psf_data.shape}")
+    print(f"big FIST: {big_data.shape}")
+
+    count = 4 + (n_r-1 + n_c-1) * 2 + (n_r-1) * (n_c-1)
+
     print(f"generating a maximum of {count} images")
 
-    def dataset_generator():
-
-        i = 0
-        if big_fits_data.shape[0] % a.size:
-            print(f"big image x  size ({big_fits_data.shape[0]}) not multiple of {a.size}")
-            border = range(int(big_fits_data.shape[1] / a.size))
-            for y in border:
-                print(f"cleaning {i}: x = {-a.size}:{big_fits_data.shape[0]}, y = {y * a.size}:{(y + 1) * a.size}")
-                dirty = big_fits_data[-a.size:, y * a.size:(y + 1) * a.size]
-                yield i, dirty.min(), dirty.max(), psf, dirty
-                i += 1
-
-        # big image y range not multiple of a.size
-        if big_fits_data.shape[1] % a.size:
-            print(f"big image y  size ({big_fits_data.shape[1]}) not multiple of {a.size}")
-            border = range(int(big_fits_data.shape[0] / a.size))
-            for x in border:
-                print(f"cleaning {i}: x = {x * a.size}:{(x + 1) * a.size}, y = {-a.size}:{big_fits_data.shape[1]}")
-                dirty = big_fits_data[x * a.size:(x + 1) * a.size, -a.size:]
-                yield i, dirty.min(), dirty.max(), psf, dirty
-                i += 1
-
-        if big_fits_data.shape[0] % a.size and big_fits_data.shape[1] % a.size:
-            print(f"both x and y not multiple of {a.size}, generating one corner piece")
-            print(f"cleaning {i}: x = {-a.size}:{big_fits_data.shape[0]}, y = {-a.size}:{big_fits_data.shape[1]}")
-            dirty = big_fits_data[-a.size:, -a.size:]
-            yield i, dirty.min(), dirty.max(), psf, dirty
-            i += 1
-
-        cartesian = product(range(int(big_fits_data.shape[0] / a.size)), range(int(big_fits_data.shape[1] / a.size)))
-        for x, y in cartesian:
-            print(f"cleaning {i}: x = {x * a.size}:{(x + 1) * a.size}, y = {y * a.size}:{(y + 1) * a.size}")
-            dirty = big_fits_data[x * a.size:(x + 1) * a.size, y * a.size:(y + 1) * a.size]
-            yield i, dirty.min(), dirty.max(), psf, dirty
-            i +=1
-
-    ds = tf.data.Dataset.from_generator(dataset_generator,
+    ds = tf.data.Dataset.from_generator(lambda: padded_generator(big_data, psf_data, n_r, n_c),
                                         output_shapes=((), (), ()) + ((256, 256, 1),) * 2,
                                         output_types=(tf.int32, tf.float32, tf.float32) + (tf.float32,) * 2)
 
     ds = ds.batch(1)
     return ds, count
 
+
+def restore(shape, generator, n_r, n_c):
+    restored = np.zeros(shape=shape)
+
+    print("step 1: corners")
+    for r, c in (TL, TR, BL, BR):
+        stamp = next(generator).squeeze()
+        restored[r, c] = stamp
+
+    print("step 2: edges")
+    for r in range(1, n_r):
+        start = stride * r
+        stamp = next(generator).squeeze()[a.pad:-a.pad,:]
+        restored[start + a.pad:start + a.size - a.pad, :a.size] = stamp
+        stamp = next(generator).squeeze()[a.pad:-a.pad,:]
+        restored[start + a.pad:start + a.size - a.pad, -a.size:] = stamp
+
+    for c in range(1, n_c):
+        start = stride * c
+        stamp = next(generator).squeeze()[:,a.pad:-a.pad]
+        restored[:a.size, start + a.pad:start + a.size - a.pad] = stamp
+        stamp = next(generator).squeeze()[:,a.pad:-a.pad]
+        restored[-a.size:, start + a.pad:start + a.size - a.pad] = stamp
+
+    print("step 3: edges")
+    for r, c in product(range(1, n_r), range(1, n_c)):
+        start_r = stride * r
+        start_c = stride * c
+        stamp = next(generator).squeeze()[a.pad:-a.pad,a.pad:-a.pad]
+        restored[start_r + a.pad:start_r + a.size - a.pad,
+                 start_c + a.pad:start_c + a.size - a.pad] = stamp
+
+    return restored
 
 
 def main():
@@ -113,15 +167,19 @@ usage: {sys.argv[0]}  dirty.fits psf.fits
     dirty_path = os.path.realpath(sys.argv[1])
     psf_path = os.path.realpath(sys.argv[2])
     big_fits = fits.open(str(dirty_path))[0]
-    big_shape = big_fits.data.squeeze().shape
-    batch, count = load_data(dirty_path, psf_path)
-    steps_per_epoch = count
-    iter = batch.make_one_shot_iterator()
-    index, min_flux, max_flux, psf, dirty = iter.get_next()
 
+    psf_data = fits_open(psf_path)[:, :, np.newaxis]
+    big_data = big_fits.data.squeeze()[:, :, np.newaxis]
+
+    n_r = int(big_data.shape[0] / stride)
+    n_c = int(big_data.shape[1] / stride)
+
+    batch, count = load_data(big_data, psf_data, n_r, n_c)
+    steps_per_epoch = count
+    iterator = batch.make_one_shot_iterator()
+    index, min_flux, max_flux, psf, dirty = iterator.get_next()
     scaled_dirty = preprocess(dirty, min_flux, max_flux)
     scaled_psf = (psf * 2) - 1
-
     input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
 
     model = create_model(input_, scaled_dirty, a.EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
@@ -130,58 +188,25 @@ usage: {sys.argv[0]}  dirty.fits psf.fits
     deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
 
     #graph = load_graph(graph_path)
-    #for op in graph.get_operations():
-    #    print(op.name)
-    #x = graph.get_tensor_by_name('deprocess/mul:0')
-
-    queue = Queue()
     #with tf.Session(graph=graph) as sess:
+        #init = tf.global_variables_initializer()
+        #sess.run(init)
+
+    queue_ = IterableQueue()
     with tf.Session() as sess:
         checkpoint = tf.train.latest_checkpoint(a.checkpoint)
         tf.train.Saver().restore(sess, checkpoint)
 
         for step in range(steps_per_epoch):
             n = sess.run(deprocessed_output)
-            queue.put(n)
+            queue_.put(n)
 
-    big_model = np.empty(big_shape)
-
-    i = 0
-    print("combining")
-    if big_shape[0] % a.size:
-        print(f"big image x  size ({big_shape[0]}) not multiple of {a.size}")
-        border = range(int(big_shape[1] / a.size))
-        for y in border:
-            print(f"writing {i}: x = {-a.size}:{big_shape[0]}, y = {y * a.size}:{(y + 1) * a.size}")
-            print(big_model.shape)
-            big_model[-a.size:, y * a.size:(y + 1) * a.size] = queue.get().squeeze()
-            i += 1
-
-    if big_shape[1] % a.size:
-        print(f"big image y  size ({big_shape[1]}) not multiple of {a.size}")
-        border = range(int(big_shape[0] / a.size))
-        for x in border:
-            print(f"writing {i}: x = {x * a.size}:{(x + 1) * a.size}, y = {-a.size}:{big_shape[1]}")
-            big_model[x * a.size:(x + 1) * a.size, -a.size:] = queue.get().squeeze()
-            i += 1
-
-    if big_shape[0] % a.size and big_shape[1] % a.size:
-        print(f"both x and y not multiple of {a.size}, generating one corner piece")
-        print(f"writing {i}: x = {-a.size}:{big_shape[0]}, y = {-a.size}:{big_shape[1]}")
-        big_model[-a.size:, -a.size:] = queue.get().squeeze()
-        i += 1
-
-    cartesian = product(range(int(big_shape[0] / a.size)), range(int(big_shape[1] / a.size)))
-    for x, y in cartesian:
-        print(f"writing {i}: x = {x * a.size}:{(x + 1) * a.size}, y = {y * a.size}:{(y + 1) * a.size}")
-        big_model[x * a.size:(x + 1) * a.size, y * a.size:(y + 1) * a.size] = queue.get().squeeze()
-        i += 1
-
-    hdu = fits.PrimaryHDU(big_model.squeeze())
-    hdu.header = big_fits.header
-    hdul = fits.HDUList([hdu])
-    hdul.writeto("stitched.fits")
-    print("done!")
+        big_model = restore(big_data.squeeze().shape, iter(queue_), n_r, n_c)
+        hdu = fits.PrimaryHDU(big_model.squeeze())
+        hdu.header = big_fits.header
+        hdul = fits.HDUList([hdu])
+        hdul.writeto("stitched.fits", overwrite=True)
+        print("done!")
 
 
 if __name__ == '__main__':
