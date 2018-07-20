@@ -10,10 +10,11 @@ from itertools import product
 from astropy.io import fits
 import queue
 import tensorflow as tf
-
+from scipy.signal import fftconvolve
 from vacuum.io import deprocess, preprocess, fits_open
 from vacuum.model import create_model
 from vacuum.util import get_prefix, AttrDict
+
 
 
 #graph_path = '/home/gijs/Work/vacuum-cleaner/train/meerkat16/frozen.pb'
@@ -124,7 +125,7 @@ def load_data(big_data, psf_data, n_r, n_c):
 
 
 def restore(shape, generator, n_r, n_c):
-    restored = np.zeros(shape=shape)
+    restored = np.zeros(shape=shape, dtype='>f4')
 
     print("step 1: corners")
     for r, c in (TL, TR, BL, BR):
@@ -166,15 +167,28 @@ usage: {sys.argv[0]}  dirty.fits psf.fits
 
     dirty_path = os.path.realpath(sys.argv[1])
     psf_path = os.path.realpath(sys.argv[2])
-    big_fits = fits.open(str(dirty_path))[0]
 
-    psf_data = fits_open(psf_path)[:, :, np.newaxis]
+    big_fits = fits.open(str(dirty_path))[0]
     big_data = big_fits.data.squeeze()[:, :, np.newaxis]
+
+    big_psf_fits = fits.open(str(psf_path))[0]
+
+    assert(big_psf_fits.data.shape == big_fits.data.shape)
+    big_psf_data = big_psf_fits.data.squeeze()
+    big_psf_data = big_psf_data / big_psf_data.max()
+    psf_small = big_psf_data[big_psf_data.shape[0] // 2 - a.size // 2 + 1:big_psf_data.shape[0] // 2 + a.size // 2 + 1,
+                big_psf_data.shape[1] // 2 - a.size // 2 + 1:big_psf_data.shape[1] // 2 + a.size // 2 + 1]
+
+    print(psf_small.shape)
+    print((big_psf_data.shape[0] // 2 - a.size // 2 + 1, big_psf_data.shape[0] // 2 + a.size // 2 + 1,
+           big_psf_data.shape[1] // 2 - a.size // 2 + 1, big_psf_data.shape[1] // 2 + a.size // 2 + 1))
+
+    psf_small = psf_small[:, :, np.newaxis]
 
     n_r = int(big_data.shape[0] / stride)
     n_c = int(big_data.shape[1] / stride)
 
-    batch, count = load_data(big_data, psf_data, n_r, n_c)
+    batch, count = load_data(big_data, psf_small, n_r, n_c)
     steps_per_epoch = count
     iterator = batch.make_one_shot_iterator()
     index, min_flux, max_flux, psf, dirty = iterator.get_next()
@@ -201,12 +215,26 @@ usage: {sys.argv[0]}  dirty.fits psf.fits
             n = sess.run(deprocessed_output)
             queue_.put(n)
 
-        big_model = restore(big_data.squeeze().shape, iter(queue_), n_r, n_c)
-        hdu = fits.PrimaryHDU(big_model.squeeze())
-        hdu.header = big_fits.header
-        hdul = fits.HDUList([hdu])
-        hdul.writeto("stitched.fits", overwrite=True)
-        print("done!")
+    big_model = restore(big_data.squeeze().shape, iter(queue_), n_r, n_c)
+
+    p = big_psf_data.shape[0]
+    #r = slice(p // 2, -p // 2 + 1)  # uneven PSF needs +2, even psf +1
+    r = slice(p // 2 + 1, -p // 2 + 2)
+    convolved = fftconvolve(big_model, big_psf_data, mode="full")[r, r]
+
+    residual = big_fits.data.squeeze() - convolved
+
+    hdu = fits.PrimaryHDU(big_model.squeeze())
+    hdu.header = big_fits.header
+    hdul = fits.HDUList([hdu])
+    hdul.writeto("vacuum-model.fits", overwrite=True)
+
+    hdu = fits.PrimaryHDU(residual.squeeze())
+    hdu.header = big_fits.header
+    hdul = fits.HDUList([hdu])
+    hdul.writeto("vacuum-residual.fits", overwrite=True)
+
+    print("done!")
 
 
 if __name__ == '__main__':
