@@ -54,6 +54,15 @@ EPS = 1e-12
 CROP_SIZE = 256
 
 
+def guass2d():
+    t = tf.linspace(-10.0, 10.0, 10)
+    bump = tf.exp(-0.1 * t ** 2)
+    bump /= tf.reduce_max(bump)  # normalize the integral to 1
+    kernel = bump[:, tf.newaxis] * bump[tf.newaxis, :]
+    filter_ = tf.expand_dims(tf.expand_dims(kernel, 2), 3)
+    return filter_
+
+
 def main():
     if a.seed is None:
         a.seed = random.randint(0, 2 ** 31 - 1)
@@ -92,6 +101,10 @@ def main():
     iter = batch.make_one_shot_iterator()
     index, min_flux, max_flux, psf, dirty, skymodel = iter.get_next()
     print("examples count = %d" % count)
+
+#    with tf.name_scope("smoothing"):
+#        filter_ = guass2d()
+#        smoothed = tf.nn.conv2d(skymodel, filter_, [1, 1, 1, 1], "SAME")
 
     with tf.name_scope("scaling_flux"):
         scaled_skymodel = preprocess(skymodel, min_flux, max_flux)
@@ -160,21 +173,21 @@ def main():
     with tf.name_scope("psfs_summary"):
         tf.summary.image("psfss", converted_psfs)
 
-    with tf.name_scope("predict_real_summary"):
-        tf.summary.image("predict_real", tf.image.convert_image_dtype(model.predict_real, dtype=tf.uint8))
+    #with tf.name_scope("predict_real_summary"):
+    #    tf.summary.image("predict_real", tf.image.convert_image_dtype(model.predict_real, dtype=tf.uint8))
 
-    with tf.name_scope("predict_fake_summary"):
-        tf.summary.image("predict_fake", tf.image.convert_image_dtype(model.predict_fake, dtype=tf.uint8))
+    #with tf.name_scope("predict_fake_summary"):
+#        tf.summary.image("predict_fake", tf.image.convert_image_dtype(model.predict_fake, dtype=tf.uint8))
 
-    tf.summary.scalar("discriminator_loss", model.discrim_loss)
-    tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
+    #tf.summary.scalar("discriminator_loss", model.discrim_loss)
+    #tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
 
-    for grad, var in model.discrim_grads_and_vars + model.gen_grads_and_vars:
-        tf.summary.histogram(var.op.name + "/gradients", grad)
+    #for grad, var in model.discrim_grads_and_vars + model.gen_grads_and_vars:
+    #    tf.summary.histogram(var.op.name + "/gradients", grad)
 
     with tf.name_scope("parameter_count"):
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
@@ -229,8 +242,8 @@ def main():
                 }
 
                 if should(a.progress_freq):
-                    fetches["discrim_loss"] = model.discrim_loss
-                    fetches["gen_loss_GAN"] = model.gen_loss_GAN
+                    #fetches["discrim_loss"] = model.discrim_loss
+                    #aafetches["gen_loss_GAN"] = model.gen_loss_GAN
                     fetches["gen_loss_L1"] = model.gen_loss_L1
 
                 if should(a.summary_freq):
@@ -261,8 +274,8 @@ def main():
                     remaining = (max_steps - step) * a.batch_size / rate
                     print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (
                         train_epoch, train_step, rate, remaining / 60))
-                    print("discrim_loss", results["discrim_loss"])
-                    print("gen_loss_GAN", results["gen_loss_GAN"])
+                    #print("discrim_loss", results["discrim_loss"])
+                    #print("gen_loss_GAN", results["gen_loss_GAN"])
                     print("gen_loss_L1", results["gen_loss_L1"])
 
                 if should(a.save_freq):

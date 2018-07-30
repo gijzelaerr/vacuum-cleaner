@@ -5,9 +5,17 @@ import tensorflow as tf
 from collections import namedtuple
 
 
-Model = namedtuple("Model",
-                   "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, "
-                   "gen_loss_GAN, gen_loss_L1, gen_grads_and_vars, train")
+Model = namedtuple("Model", [
+    "outputs",
+    #"predict_real",
+    #"predict_fake",
+    #"discrim_loss",
+    #"discrim_grads_and_vars",
+    #"gen_loss_GAN",
+    "gen_loss_L1",
+    "gen_grads_and_vars",
+    "train"
+])
 
 
 def create_generator(generator_inputs, generator_outputs_channels, ngf: int, separable_conv: bool):
@@ -113,64 +121,75 @@ def create_discriminator(discrim_inputs, discrim_targets, ndf: int):
     return layers[-1]
 
 
-def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_weight, lr, beta1):
+def create_model(inputs_img, targets_img, EPS, separable_conv, ngf, ndf, gan_weight, l1_weight, lr, beta1) -> Model:
+
+    input_vis = tf.fft2d(tf.complex(inputs_img, tf.zeros(shape=(5, 256, 256, 1))))
+    input_vis_real = tf.real(input_vis)
+    input_vis_imag = tf.imag(input_vis)
+    input_vis_channelled = tf.concat([input_vis_real, input_vis_imag], axis=3)
+
     with tf.variable_scope("generator"):
-        out_channels = 1
-        outputs = create_generator(inputs, out_channels, ngf, separable_conv)
+        out_channels = 2
+        outputs_vis = create_generator(input_vis_channelled, out_channels, ngf, separable_conv)
 
     # create two copies of discriminator, one for real pairs and one for fake pairs
     # they share the same underlying variables
-    with tf.name_scope("real_discriminator"):
-        with tf.variable_scope("discriminator"):
-            # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-            predict_real = create_discriminator(inputs, targets, ndf)
+    #with tf.name_scope("real_discriminator"):
+    #    with tf.variable_scope("discriminator"):
+    #        # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
+    #        predict_real = create_discriminator(inputs, targets, ndf)
 
-    with tf.name_scope("fake_discriminator"):
-        with tf.variable_scope("discriminator", reuse=True):
-            # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-            predict_fake = create_discriminator(inputs, outputs, ndf)
+    #with tf.name_scope("fake_discriminator"):
+    #    with tf.variable_scope("discriminator", reuse=True):
+    #        # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
+    #        predict_fake = create_discriminator(inputs, outputs, ndf)
 
-    with tf.name_scope("discriminator_loss"):
-        # minimizing -tf.log will try to get inputs to 1
-        # predict_real => 1
-        # predict_fake => 0
-        discrim_loss = tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))
+    #with tf.name_scope("discriminator_loss"):
+    #    # minimizing -tf.log will try to get inputs to 1
+    #    # predict_real => 1
+    #    # predict_fake => 0
+    #    discrim_loss = tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))
+
+    outputs_img = tf.ifft2d(tf.complex(outputs_vis[:,:,:,0], outputs_vis[:,:,:,1])[:,:,:,tf.newaxis])
+    outputs_real = tf.real(outputs_img)
 
     with tf.name_scope("generator_loss"):
         # predict_fake => 1
         # abs(targets - outputs) => 0
-        gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
-        gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
-        gen_loss = gen_loss_GAN * gan_weight + gen_loss_L1 * l1_weight
+#        gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
+        gen_loss_L1 = tf.reduce_mean(tf.abs(targets_img - outputs_real))
+        #gen_loss = gen_loss_GAN * gan_weight + gen_loss_L1 * l1_weight
+        gen_loss = gen_loss_L1
 
-    with tf.name_scope("discriminator_train"):
-        discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
-        discrim_optim = tf.train.AdamOptimizer(lr, beta1)
-        discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars)
-        discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
+#    with tf.name_scope("discriminator_train"):
+#        discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
+#        discrim_optim = tf.train.AdamOptimizer(lr, beta1)
+#        discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars)
+#        discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
 
     with tf.name_scope("generator_train"):
-        with tf.control_dependencies([discrim_train]):
+#        with tf.control_dependencies([discrim_train]):
             gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
             gen_optim = tf.train.AdamOptimizer(lr, beta1)
             gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars)
             gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
-    update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1])
+    #update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1])
+    update_losses = ema.apply([gen_loss_L1])
 
     global_step = tf.train.get_or_create_global_step()
     incr_global_step = tf.assign(global_step, global_step + 1)
 
     return Model(
-        predict_real=predict_real,
-        predict_fake=predict_fake,
-        discrim_loss=ema.average(discrim_loss),
-        discrim_grads_and_vars=discrim_grads_and_vars,
-        gen_loss_GAN=ema.average(gen_loss_GAN),
+        #predict_real=predict_real,
+        #predict_fake=predict_fake,
+        #discrim_loss=ema.average(discrim_loss),
+        #discrim_grads_and_vars=discrim_grads_and_vars,
+        #gen_loss_GAN=ema.average(gen_loss_GAN),
         gen_loss_L1=ema.average(gen_loss_L1),
         gen_grads_and_vars=gen_grads_and_vars,
-        outputs=outputs,
+        outputs=outputs_real,
         train=tf.group(update_losses, incr_global_step, gen_train),
     )
 
