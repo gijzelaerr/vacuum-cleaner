@@ -152,12 +152,13 @@ def create_model(inputs_img, targets_img, EPS, separable_conv, ngf, ndf, gan_wei
 
     outputs_img = tf.ifft2d(tf.complex(outputs_vis[:,:,:,0], outputs_vis[:,:,:,1])[:,:,:,tf.newaxis])
     outputs_real = tf.real(outputs_img)
+    output_abs = tf.abs(outputs_img)
 
     with tf.name_scope("generator_loss"):
         # predict_fake => 1
         # abs(targets - outputs) => 0
 #        gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
-        gen_loss_L1 = tf.reduce_mean(tf.abs(targets_img - outputs_real))
+        gen_loss_L1 = tf.reduce_mean(tf.abs(targets_img - output_abs))
         #gen_loss = gen_loss_GAN * gan_weight + gen_loss_L1 * l1_weight
         gen_loss = gen_loss_L1
 
@@ -189,7 +190,7 @@ def create_model(inputs_img, targets_img, EPS, separable_conv, ngf, ndf, gan_wei
         #gen_loss_GAN=ema.average(gen_loss_GAN),
         gen_loss_L1=ema.average(gen_loss_L1),
         gen_grads_and_vars=gen_grads_and_vars,
-        outputs=outputs_real,
+        outputs=output_abs,
         train=tf.group(update_losses, incr_global_step, gen_train),
     )
 
