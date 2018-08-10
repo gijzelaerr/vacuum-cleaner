@@ -20,13 +20,13 @@ def transform(image, flip, seed, scale_size, crop_size):
     r = image
     if flip:
         r = tf.image.random_flip_left_right(r, seed=seed)
+        r = tf.image.random_flip_up_down(r, seed=seed)
 
     # area produces a nice downscaling, but does nearest neighbor for upscaling
     # assume we're going to be doing downscaling here
-    r = tf.image.resize_images(r, [scale_size, scale_size], method=tf.image.ResizeMethod.AREA)
-
-    offset = tf.cast(tf.floor(tf.random_uniform([2], 0, scale_size - crop_size + 1, seed=seed)), dtype=tf.int32)
     if scale_size > crop_size:
+        r = tf.image.resize_images(r, [scale_size, scale_size], method=tf.image.ResizeMethod.AREA)
+        offset = tf.cast(tf.floor(tf.random_uniform([2], 0, scale_size - crop_size + 1, seed=seed)), dtype=tf.int32)
         r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], crop_size, crop_size)
     elif scale_size < crop_size:
         raise Exception("scale size cannot be less than crop size")
