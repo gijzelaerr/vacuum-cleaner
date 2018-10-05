@@ -7,6 +7,11 @@ install_requires = [
     'tensorflow',
     'astropy',
     'scipy',
+    'pathlib',
+    'future',
+    'six',
+    'typing',
+    'repoze.lru',
 ]
 
 extras_require = {

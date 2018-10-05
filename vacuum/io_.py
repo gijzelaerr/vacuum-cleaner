@@ -6,6 +6,7 @@ import random
 import re
 from io import BytesIO
 from pathlib import Path
+from typing import Optional, List, Dict
 
 import numpy as np
 import tensorflow as tf
@@ -33,8 +34,8 @@ def transform(image, flip, seed, scale_size, crop_size):
     return r
 
 
-def load_data(path: str, crop_size: int, flip: bool, scale_size: int, max_epochs: int, batch_size: int,
-              start=None, end=None):
+def load_data(path, crop_size, flip, scale_size, max_epochs, batch_size, start=None, end=None):
+    # type: (str, int, bool, int, int, int, Optional[int], Optional[int]) -> (tf.data.Dataset, int)
     """
     Point this to a path containing fits files fallowing naming schema <number>-<type>.fits
 
@@ -68,9 +69,9 @@ def load_data(path: str, crop_size: int, flip: bool, scale_size: int, max_epochs
     def dataset_generator():
         for i in range(min_, max_ + 1):
             # add one channel
-            psf = fits_open(f"{path}/{i}-wsclean-psf.fits")[:, :, np.newaxis]
-            dirty = fits_open(f"{path}/{i}-wsclean-dirty.fits")[:, :, np.newaxis]
-            skymodel = fits_open(f"{path}/{i}-skymodel.fits")[:, :, np.newaxis]
+            psf = fits_open("{}/{}-wsclean-psf.fits".format(path, i))[:, :, np.newaxis]
+            dirty = fits_open("{}/{}-wsclean-dirty.fits".format(path, i))[:, :, np.newaxis]
+            skymodel = fits_open("{}/{}-skymodel.fits".format(path, i))[:, :, np.newaxis]
             min_flux = dirty.min()
             max_flux = dirty.max()
             yield i, min_flux, max_flux, psf, dirty, skymodel
@@ -110,7 +111,8 @@ def fits_encode(image):
     return tf.py_func(internal, [image], tf.string)
 
 
-def save_images(fetches, output_dir: str, step=None, subfolder="images", extention="png"):
+def save_images(fetches, output_dir, step=None, subfolder="images", extention="png"):
+    # type: (Dict, str, Optional[int], Optional[str], Optional[str]) -> List[Dict]
     if subfolder:
         image_dir = os.path.join(output_dir, subfolder)
     else:

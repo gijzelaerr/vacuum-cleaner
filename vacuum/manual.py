@@ -10,7 +10,7 @@ import random
 import math
 import time
 
-from vacuum.io import load_data, fits_encode, save_images, deprocess, preprocess
+from vacuum.io_ import load_data, fits_encode, save_images, deprocess, preprocess
 from vacuum.model import create_model
 from vacuum.util import shift
 

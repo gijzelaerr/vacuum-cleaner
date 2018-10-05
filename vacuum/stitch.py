@@ -9,7 +9,7 @@ from itertools import product
 from astropy.io import fits
 import tensorflow as tf
 from scipy.signal import fftconvolve
-from vacuum.io import deprocess, preprocess
+from vacuum.io_ import deprocess, preprocess
 from vacuum.model import create_generator
 from vacuum.util import get_prefix, AttrDict, IterableQueue, shift
 
@@ -75,9 +75,9 @@ def load_data(big_data, psf_data, n_r, n_c):
     """
 
     count = 4 + (n_r - 1 + n_c - 1) * 2 + (n_r - 1) * (n_c - 1)
-    print(f"PSF: {psf_data.shape}")
-    print(f"big FIST: {big_data.shape}")
-    print(f"generating a maximum of {count} images")
+    print("PSF: {}".format(psf_data.shape))
+    print("big FIST: {}".format(big_data.shape))
+    print("generating a maximum of {} images".format(count))
 
     ds = tf.data.Dataset.from_generator(lambda: padded_generator(big_data, psf_data, n_r, n_c),
                                         output_shapes=((), (), ()) + ((256, 256, 1),) * 2,
@@ -126,9 +126,7 @@ def restore(shape, generator, n_r, n_c):
 
 def main():
     if len(sys.argv) != 3:
-        print(f"""
-usage: {sys.argv[0]}  dirty.fits psf.fits
-""")
+        print("\nusage: {}  dirty.fits psf.fits\n".format(sys.argv[0]))
         sys.exit(1)
 
     dirty_path = os.path.realpath(sys.argv[1])

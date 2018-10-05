@@ -3,6 +3,7 @@ Then tensorflow model.
 """
 import tensorflow as tf
 from collections import namedtuple
+from typing import Any
 
 
 Model = namedtuple("Model",
@@ -10,7 +11,8 @@ Model = namedtuple("Model",
                    "gen_loss_GAN, gen_loss_L1, gen_grads_and_vars, train")
 
 
-def create_generator(generator_inputs, generator_outputs_channels, ngf: int, separable_conv: bool):
+def create_generator(generator_inputs, generator_outputs_channels, ngf, separable_conv):
+    # types: (generator_inputs, generator_outputs_channels, ngf: int, separable_conv: bool)
     layers = []
 
     # encoder_1: [batch, 256, 256, in_channels] => [batch, 128, 128, ngf]
@@ -79,7 +81,8 @@ def create_generator(generator_inputs, generator_outputs_channels, ngf: int, sep
     return layers[-1]
 
 
-def create_discriminator(discrim_inputs, discrim_targets, ndf: int):
+def create_discriminator(discrim_inputs, discrim_targets, ndf):
+    # types: (discrim_inputs, discrim_targets, ndf: int)
     n_layers = 3
     layers = []
 
@@ -181,7 +184,8 @@ def discrim_conv(batch_input, out_channels, stride):
                             kernel_initializer=tf.random_normal_initializer(0, 0.02))
 
 
-def gen_conv(batch_input, out_channels, separable_conv: bool):
+def gen_conv(batch_input, out_channels, separable_conv):
+    # type: (Any, Any, bool) -> Any
     # [batch, in_height, in_width, in_channels] => [batch, out_height, out_width, out_channels]
     initializer = tf.random_normal_initializer(0, 0.02)
     if separable_conv:
@@ -192,7 +196,8 @@ def gen_conv(batch_input, out_channels, separable_conv: bool):
                                 kernel_initializer=initializer)
 
 
-def gen_deconv(batch_input, out_channels, separable_conv: bool):
+def gen_deconv(batch_input, out_channels, separable_conv):
+    # type: (Any, Any, bool) -> Any
     # [batch, in_height, in_width, in_channels] => [batch, out_height, out_width, out_channels]
     initializer = tf.random_normal_initializer(0, 0.02)
     if separable_conv:
@@ -206,7 +211,8 @@ def gen_deconv(batch_input, out_channels, separable_conv: bool):
                                           kernel_initializer=initializer)
 
 
-def lrelu(x, a: float):
+def lrelu(x, a):
+    # type: (Any, float) -> Any
     with tf.name_scope("lrelu"):
         # adding these together creates the leak part and linear part
         # then cancels them out by subtracting/adding an absolute value term

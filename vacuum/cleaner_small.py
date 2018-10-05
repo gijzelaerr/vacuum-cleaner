@@ -6,7 +6,7 @@ import os
 import sys
 import numpy as np
 
-from vacuum.io import fits_encode, save_images, deprocess, preprocess, fits_open
+from vacuum.io_ import fits_encode, save_images, deprocess, preprocess, fits_open
 from vacuum.model import create_model
 from vacuum.util import shift, get_prefix, AttrDict
 from typing import List

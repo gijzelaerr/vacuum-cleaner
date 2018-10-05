@@ -1,7 +1,7 @@
 import queue
 
 from tensorflow import image
-from functools import lru_cache
+from repoze.lru import lru_cache
 from os import path, getcwd
 import sys
 
@@ -20,7 +20,8 @@ def shift(i, x=0, y=0):
 
 
 @lru_cache(maxsize=1)
-def get_prefix(file: str='share/vacuum/model/checkpoint'):
+def get_prefix(file='share/vacuum/model/checkpoint'):
+    # type: (str) -> str
     """
     Returns the Python prefix where vacuum is installed
     returns:
