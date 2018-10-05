@@ -15,3 +15,5 @@ train
 dist/
 *.egg-info/
 build/
+share/vacuum/model/*.data-*-of-*
+share/vacuum/model/model.tar.xz

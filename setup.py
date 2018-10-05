@@ -6,6 +6,7 @@ __version__ = "0.2"
 install_requires = [
     'tensorflow',
     'astropy',
+    'scipy',
 ]
 
 extras_require = {
@@ -15,10 +16,9 @@ extras_require = {
 data_files = [
     ('share/vacuum/model', [
         'share/vacuum/model/checkpoint',
-        'share/vacuum/model/graph.pbtxt',
-        'share/vacuum/model/model-10000.data-00000-of-00001',
-        'share/vacuum/model/model-10000.index',
-        'share/vacuum/model/model-10000.meta',
+        'share/vacuum/model/export.data-00000-of-00001',
+        'share/vacuum/model/export.index',
+        'share/vacuum/model/export.meta',
 
 
     ])

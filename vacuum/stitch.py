@@ -7,111 +7,76 @@ import sys
 import numpy as np
 from itertools import product
 from astropy.io import fits
-import queue
 import tensorflow as tf
 from scipy.signal import fftconvolve
 from vacuum.io import deprocess, preprocess
 from vacuum.model import create_generator
-from vacuum.util import get_prefix, AttrDict
-
+from vacuum.util import get_prefix, AttrDict, IterableQueue, shift
 
 a = AttrDict()
-a.EPS = 1e-12
-a.beta1 = 0.5
 a.checkpoint = os.path.join(get_prefix(), "share/vacuum/model")
-#a.checkpoint = os.path.join(get_prefix(), "train/meerkat16_deep2like")
-a.batch_size = 5
-a.gan_weight = 1.0
-a.l1_weight = 100.0
-a.lr = 0.0002
-a.ndf = 64
 a.ngf = 64
 a.output_dir = "."
 a.size = 256
 a.pad = 50
 a.separable_conv = False
 
+stride = a.size - a.pad * 2
 
+
+# shortcut for the corners
 TL = (slice(None, a.size), slice(None, a.size))
 BL = (slice(-a.size, None), slice(None, a.size))
 TR = (slice(None, a.size), slice(-a.size, None))
 BR = (slice(-a.size, None), slice(-a.size, None))
 
-stride = a.size - a.pad * 2
-
-
-class IterableQueue(queue.Queue):
-    def __iter__(self):
-        while True:
-            try:
-                yield self.get_nowait()
-            except queue.Empty:
-                return
-
-
-def load_graph(frozen_graph_filename):
-    # We load the protobuf file from the disk and parse it to retrieve the
-    # unserialized graph_def
-    with tf.gfile.GFile(frozen_graph_filename, "rb") as f:
-        graph_def = tf.GraphDef()
-        graph_def.ParseFromString(f.read())
-
-    # Then, we import the graph_def into a new Graph and returns it
-    with tf.Graph().as_default() as graph:
-        # The name var will prefix every op/nodes in your graph
-        # Since we load everything in a new graph, this is not needed
-        tf.import_graph_def(graph_def, name="")
-    return graph
-
 
 def padded_generator(big_data, psf, n_r, n_c):
+    """
+    This will take 2 equal size tensors and yields a sliding window subset
+    """
     i = 0
-    for r, c in (TL, TR, BL, BR):  # step 1
-        #print(f"cleaning {i}: {r}, {c}")
+    for r, c in (TL, TR, BL, BR):  # step 1, corners
         stamp = big_data[r, c]
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
-    for r in range(1, n_r):  # step 2: edges left right
+    for r in range(1, n_r):  # step 2: edges left to right
         start = stride * r
-        #print(f"cleaning {i}: {start}:{start + a.size}, :{a.size}")
         stamp = big_data[start:start + a.size, :a.size]  # 0,0 -> r,0
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
-        #print(f"cleaning {i}: {start}:{start + a.size}, {-a.size}:")
         stamp = big_data[start:start + a.size, -a.size:]  # 0,c -> r,c
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
-    for c in range(1, n_c):  # step 2: edges, top bottom
+    for c in range(1, n_c):  # step 2: edges, top to bottom
         start = stride * c
-        #print(f"cleaning {i}: :{a.size}, {start}:{start + a.size}")
         stamp = big_data[:a.size, start:start + a.size]  # 0,0 -> 0,c
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
-        #print(f"cleaning {i}: {-a.size}:, {start}:{start + a.size}")
         stamp = big_data[-a.size:, start:start + a.size]  # 0,0 -> r,c
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
-    for r, c in product(range(1, n_r), range(1, n_c)):  # step 3
+    for r, c in product(range(1, n_r), range(1, n_c)):  # step 3, inside
         start_r = stride * r
         start_c = stride * c
-        #print(f"cleaning {i}: {start_r}:{start_r + a.size}, {start_c}:{start_c + a.size}")
         stamp = big_data[start_r:start_r + a.size, start_c:start_c + a.size]
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
 
 def load_data(big_data, psf_data, n_r, n_c):
+    """
+    We need to wrap the generator into a Tensorflow dataset
+    """
 
+    count = 4 + (n_r - 1 + n_c - 1) * 2 + (n_r - 1) * (n_c - 1)
     print(f"PSF: {psf_data.shape}")
     print(f"big FIST: {big_data.shape}")
-
-    count = 4 + (n_r-1 + n_c-1) * 2 + (n_r-1) * (n_c-1)
-
     print(f"generating a maximum of {count} images")
 
     ds = tf.data.Dataset.from_generator(lambda: padded_generator(big_data, psf_data, n_r, n_c),
@@ -123,6 +88,9 @@ def load_data(big_data, psf_data, n_r, n_c):
 
 
 def restore(shape, generator, n_r, n_c):
+    """
+    restores a set of tiny cleaned images into a big image.
+    """
     restored = np.zeros(shape=shape, dtype='>f4')
 
     print("step 1: corners")
@@ -165,13 +133,12 @@ usage: {sys.argv[0]}  dirty.fits psf.fits
 
     dirty_path = os.path.realpath(sys.argv[1])
     psf_path = os.path.realpath(sys.argv[2])
-
     big_fits = fits.open(str(dirty_path))[0]
     big_data = big_fits.data.squeeze()[:, :, np.newaxis]
-
     big_psf_fits = fits.open(str(psf_path))[0]
-
     assert(big_psf_fits.data.shape == big_fits.data.shape)
+
+    # we need a smaller PSF to give as a channel to the dirty tiles
     big_psf_data = big_psf_fits.data.squeeze()
     big_psf_data = big_psf_data / big_psf_data.max()
     psf_small = big_psf_data[big_psf_data.shape[0] // 2 - a.size // 2 + 1:big_psf_data.shape[0] // 2 + a.size // 2 + 1,
@@ -186,6 +153,7 @@ usage: {sys.argv[0]}  dirty.fits psf.fits
     n_r = int(big_data.shape[0] / stride)
     n_c = int(big_data.shape[1] / stride)
 
+    # set up the data loading
     batch, count = load_data(big_data, psf_small, n_r, n_c)
     steps_per_epoch = count
     iterator = batch.make_one_shot_iterator()
@@ -194,10 +162,12 @@ usage: {sys.argv[0]}  dirty.fits psf.fits
     scaled_psf = (psf * 2) - 1
     input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
 
+    # set up the network
     with tf.variable_scope("generator"):
         outputs = create_generator(input_, 1, a.ngf, a.separable_conv)
         deprocessed_output = deprocess(outputs, min_flux, max_flux)
 
+    # run all data through the network
     queue_ = IterableQueue()
     with tf.Session() as sess:
         print("restoring data from checkpoint " + a.checkpoint)
@@ -208,15 +178,15 @@ usage: {sys.argv[0]}  dirty.fits psf.fits
             n = sess.run(deprocessed_output)
             queue_.put(n)
 
+    # reconstruct the data
     big_model = restore(big_data.squeeze().shape, iter(queue_), n_r, n_c)
-
     p = big_psf_data.shape[0]
     #r = slice(p // 2, -p // 2 + 1)  # uneven PSF needs +2, even psf +1
     r = slice(p // 2 + 1, -p // 2 + 2)
     convolved = fftconvolve(big_model, big_psf_data, mode="full")[r, r]
-
     residual = big_fits.data.squeeze() - convolved
 
+    # write the data
     hdu = fits.PrimaryHDU(big_model.squeeze())
     hdu.header = big_fits.header
     hdul = fits.HDUList([hdu])

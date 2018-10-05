@@ -1,3 +1,5 @@
+import queue
+
 from tensorflow import image
 from functools import lru_cache
 from os import path, getcwd
@@ -38,3 +40,12 @@ class AttrDict(dict):
     def __init__(self, *args, **kwargs):
         super(AttrDict, self).__init__(*args, **kwargs)
         self.__dict__ = self
+
+
+class IterableQueue(queue.Queue):
+    def __iter__(self):
+        while True:
+            try:
+                yield self.get_nowait()
+            except queue.Empty:
+                return

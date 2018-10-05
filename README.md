@@ -1,6 +1,6 @@
 # Deep Vacuum Cleaner
 
-Radio telescope deconvolulion version of the tensorflow implementation of pix2pix. 
+Radio telescope deconvolution based using a Conditional Generative Adversarial Deep Network.
 
 Based on [pix2pix-tensorflow](https://github.com/affinelayer/pix2pix-tensorflow)
 
@@ -8,6 +8,17 @@ Whch is based on [pix2pix](https://phillipi.github.io/pix2pix/) by Isola et al.
 
 [Article about this implemention](https://affinelayer.com/pix2pix/)
 
+
+## preparations
+
+You probably want to download a pretrained model.
+
+download:
+
+http://repo.kernsuite.info/vacuum/model.tar.xz
+
+And extract to `share/vacuum/model`.
+ 
 
 ## Setup
 
@@ -29,7 +40,7 @@ But the tensorflow-gpu package is not the most portable package available.
 ```
 $ vacuum-clean dirty.fits psf.fits
 ```       
-The PSF needs to be 256x256 (for now).       
+      
 
 
 ## Training
