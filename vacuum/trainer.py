@@ -10,20 +10,18 @@ import random
 import math
 import time
 
-from vacuum.io_ import load_data, fits_encode, save_images, deprocess, preprocess
+from vacuum.io_ import load_data, save_images, deprocess, preprocess
 from vacuum.model import create_model
 from vacuum.util import shift
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input_dir", help="path to folder containing images")
-parser.add_argument("--mode", required=True, choices=["train", "test"])
 parser.add_argument("--output_dir", required=True, help="where to put output files")
 parser.add_argument("--seed", type=int)
-parser.add_argument("--checkpoint", default=None,
-                    help="directory with checkpoint to resume training from or use for testing")
 
 parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
 parser.add_argument("--max_epochs", type=int, help="number of training epochs")
+parser.add_argument("--validation_freq", type=int, default=100, help="update validations every validation_freq steps")
 parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
 parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
@@ -43,8 +41,12 @@ parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of a
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
 
-parser.add_argument("--data_start", type=int, help="start number of dataset subset")
-parser.add_argument("--data_end", type=int, help="end number of dataset subset")
+parser.add_argument("--train_start", type=int, help="start index of train dataset subset", default=0)
+parser.add_argument("--train_end", type=int, help="end index of train dataset subset", default=1800)
+
+parser.add_argument("--validate_start", type=int, help="start index of train dataset subset", default=1800)
+parser.add_argument("--validate_end", type=int, help="end index of train dataset subset", default=1900)
+
 parser.add_argument('--disable_psf', action='store_true', help="disable the concatenation of the PSF as a channel")
 
 
@@ -54,7 +56,7 @@ EPS = 1e-12
 CROP_SIZE = 256
 
 
-def main():
+def prepare():
     if a.seed is None:
         a.seed = random.randint(0, 2 ** 31 - 1)
 
@@ -65,42 +67,48 @@ def main():
     if not os.path.exists(a.output_dir):
         os.makedirs(a.output_dir)
 
-    if a.mode == "test":
-        if a.checkpoint is None:
-            raise Exception("checkpoint required for test mode")
-
-        # load some options from the checkpoint
-        options = {"ngf", "ndf"}
-        with open(os.path.join(a.checkpoint, "options.json")) as f:
-            for key, val in json.loads(f.read()).items():
-                if key in options:
-                    print("loaded", key, "=", val)
-                    setattr(a, key, val)
-        # disable these features in test mode
-        a.scale_size = CROP_SIZE
-        a.flip = False
-
     for k, v in a._get_kwargs():
         print(k, "=", v)
 
     with open(os.path.join(a.output_dir, "options.json"), "w") as f:
         f.write(json.dumps(vars(a), sort_keys=True, indent=4))
 
-    batch, count = load_data(a.input_dir, CROP_SIZE, a.flip, a.scale_size, a.max_epochs, a.batch_size,
-                             start=a.data_start, end=a.data_end)
-    steps_per_epoch = int(math.ceil(count / a.batch_size))
-    iter = batch.make_one_shot_iterator()
-    index, min_flux, max_flux, psf, dirty, skymodel = iter.get_next()
-    print("examples count = %d" % count)
+
+def visual_scaling(img):
+    """ go from (-1, 1) to (0, 1)"""
+    return (img + 1) / 2
+
+
+def main():
+    prepare()
+
+    train_batch, train_count = load_data(a.input_dir, CROP_SIZE, a.flip, a.scale_size, a.max_epochs, a.batch_size,
+                             start=a.train_start, end=a.train_end, loop=True)
+    steps_per_epoch = int(math.ceil(train_count / a.batch_size))
+    print("train count = %d" % train_count)
+
+    validate_batch, validate_count = load_data(a.input_dir, CROP_SIZE, a.flip, a.scale_size, a.max_epochs, a.batch_size,
+                             start=a.validate_start, end=a.validate_end)
+    print("validate count = %d" % validate_count)
+
+    handle = tf.placeholder(tf.string, shape=[])
+    iterator = tf.data.Iterator.from_string_handle(handle, train_batch.output_types, train_batch.output_shapes)
+    index, min_flux, max_flux, psf, dirty, skymodel = iterator.get_next()
+
+    # You can use feedable iterators with a variety of different kinds of iterator
+    # (such as one-shot and initializable iterators).
+    training_iterator = train_batch.make_one_shot_iterator()
+    validation_iterator = validate_batch.make_initializable_iterator()
 
     with tf.name_scope("scaling_flux"):
         scaled_skymodel = preprocess(skymodel, min_flux, max_flux)
         scaled_dirty = preprocess(dirty, min_flux, max_flux)
         scaled_psf = (psf * 2) - 1
 
-    #vis = tf.fft2d(tf.complex(scaled_dirty, tf.zeros(shape=(a.batch_size, CROP_SIZE, CROP_SIZE, 1))))
-    #real = tf.real(vis)
-    #imag = tf.imag(vis)
+    ## i'll just leave this here in case we decide to do something with visibilities again (unlikely)
+    # vis = tf.fft2d(tf.complex(scaled_dirty, tf.zeros(shape=(a.batch_size, CROP_SIZE, CROP_SIZE, 1))))
+    # real = tf.real(vis)
+    # imag = tf.imag(vis)
 
     if a.disable_psf:
         input_ = scaled_dirty
@@ -119,10 +127,6 @@ def main():
         convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
         residuals = dirty - convolved
 
-    def visual_scaling(img):
-        """ go from (-1, 1) to (0, 1)"""
-        return (img + 1) / 2
-
     # reverse any processing on images so they can be written to disk or displayed to user
     with tf.name_scope("convert_images"):
         converted_inputs = tf.image.convert_image_dtype(visual_scaling(scaled_dirty), dtype=tf.uint8, saturate=True)
@@ -139,15 +143,6 @@ def main():
             "outputs": tf.map_fn(tf.image.encode_png, converted_outputs, dtype=tf.string, name="output_pngs"),
             "psfs": tf.map_fn(tf.image.encode_png, converted_psfs, dtype=tf.string, name="psf_pngs"),
             "residuals": tf.map_fn(tf.image.encode_png, converted_residuals, dtype=tf.string, name="residual_pngs"),
-        }
-
-    with tf.name_scope("encode_fitss"):
-        fits_fetches = {
-            "indexs": index,
-            "inputs": tf.map_fn(fits_encode, dirty, dtype=tf.string, name="input_fits"),
-            "targets": tf.map_fn(fits_encode, skymodel, dtype=tf.string, name="target_fits"),
-            "outputs": tf.map_fn(fits_encode, deprocessed_output, dtype=tf.string, name="output_fits"),
-            "residuals": tf.map_fn(fits_encode, residuals, dtype=tf.string, name="residuals_fits"),
         }
 
     # summaries
@@ -170,6 +165,9 @@ def main():
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
 
+    val_gen_loss_GAN_summary = tf.summary.scalar("Validation generator_loss_GAN", model.gen_loss_GAN)
+    val_gen_loss_L1_summary = tf.summary.scalar("Validation generator_loss_L1", model.gen_loss_L1)
+
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
 
@@ -186,10 +184,12 @@ def main():
     with sv.managed_session() as sess:
         print("parameter_count =", sess.run(parameter_count))
 
-        if a.checkpoint is not None:
-            print("loading model from checkpoint")
-            checkpoint = tf.train.latest_checkpoint(a.checkpoint)
-            saver.restore(sess, checkpoint)
+        validation_summary_writer = tf.summary.FileWriter(logdir=sv._logdir + '/validation')
+
+        # The `Iterator.string_handle()` method returns a tensor that can be evaluated
+        # and used to feed the `handle` placeholder.
+        training_handle = sess.run(training_iterator.string_handle())
+        validation_handle = sess.run(validation_iterator.string_handle())
 
         max_steps = 2 ** 32
         if a.max_epochs is not None:
@@ -197,80 +197,80 @@ def main():
         if a.max_steps is not None:
             max_steps = a.max_steps
 
-        if a.mode == "test":
-            # testing
-            # at most, process the test data once
-            max_steps = min(steps_per_epoch, max_steps)
+        start = time.time()
 
-            # repeat the same for fits arrays
-            for step in range(max_steps):
-                results = sess.run(fits_fetches)
-                filesets = save_images(results, subfolder="fits", extention="fits", output_dir=a.output_dir)
-                for f in filesets:
-                    print("wrote " + f['name'])
+        for step in range(max_steps):
+            def should(freq):
+                return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
 
-        else:
-            # training
-            start = time.time()
+            options = None
+            run_metadata = None
+            if should(a.trace_freq):
+                options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                run_metadata = tf.RunMetadata()
 
-            for step in range(max_steps):
-                def should(freq):
-                    return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
+            fetches = {
+                "train": model.train,
+                "global_step": sv.global_step,
+            }
 
-                options = None
-                run_metadata = None
-                if should(a.trace_freq):
-                    options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-                    run_metadata = tf.RunMetadata()
+            if should(a.progress_freq):
+                fetches["discrim_loss"] = model.discrim_loss
+                fetches["gen_loss_GAN"] = model.gen_loss_GAN
+                fetches["gen_loss_L1"] = model.gen_loss_L1
 
-                fetches = {
-                    "train": model.train,
-                    "global_step": sv.global_step,
+            if should(a.summary_freq):
+                fetches["summary"] = sv.summary_op
+
+            if should(a.display_freq):
+                fetches["display"] = display_fetches
+
+            results = sess.run(fetches, options=options, run_metadata=run_metadata, feed_dict={handle: training_handle})
+
+            if should(a.summary_freq):
+                print("recording summary")
+                sv.summary_writer.add_summary(results["summary"], results["global_step"])
+
+            if should(a.display_freq):
+                print("saving display images")
+                save_images(results["display"], step=results["global_step"], output_dir=a.output_dir)
+
+            if should(a.trace_freq):
+                print("recording trace")
+                sv.summary_writer.add_run_metadata(run_metadata, "step_%d" % results["global_step"])
+
+            if should(a.progress_freq):
+                # global_step will have the correct step count if we resume from a checkpoint
+                train_epoch = math.ceil(results["global_step"] / steps_per_epoch)
+                train_step = (results["global_step"] - 1) % steps_per_epoch + 1
+                rate = (step + 1) * a.batch_size / (time.time() - start)
+                remaining = (max_steps - step) * a.batch_size / rate
+                print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (
+                    train_epoch, train_step, rate, remaining / 60))
+                print("discrim_loss", results["discrim_loss"])
+                print("gen_loss_GAN", results["gen_loss_GAN"])
+                print("gen_loss_L1", results["gen_loss_L1"])
+
+            if should(a.save_freq):
+                print("saving model")
+                saver.save(sess, os.path.join(a.output_dir, "model"), global_step=sv.global_step)
+
+            if should(a.validation_freq):
+                print("Validation!!!")
+                validation_fetches = {
+                    "validation_gen_loss_GAN": val_gen_loss_GAN_summary,
+                    "validation_gen_loss_L1": val_gen_loss_L1_summary,
                 }
 
-                if should(a.progress_freq):
-                    fetches["discrim_loss"] = model.discrim_loss
-                    fetches["gen_loss_GAN"] = model.gen_loss_GAN
-                    fetches["gen_loss_L1"] = model.gen_loss_L1
+                validation_results = sess.run(validation_fetches, feed_dict={handle: validation_handle})
+                print("validation gen_loss_GAN", validation_results["validation_gen_loss_GAN"])
+                print("validation gen_loss_L1", validation_results["validation_gen_loss_L1"])
 
-                if should(a.summary_freq):
-                    fetches["summary"] = sv.summary_op
+                #validation_summary_writer.add_summary(val_gen_loss_GAN_summary, results["global_step"])
+                #validation_summary_writer.add_summary(val_gen_loss_L1_summary, results["global_step"])
 
-                if should(a.display_freq):
-                    fetches["display"] = display_fetches
-
-                results = sess.run(fetches, options=options, run_metadata=run_metadata)
-
-                if should(a.summary_freq):
-                    print("recording summary")
-                    sv.summary_writer.add_summary(results["summary"], results["global_step"])
-
-                if should(a.display_freq):
-                    print("saving display images")
-                    save_images(results["display"], step=results["global_step"], output_dir=a.output_dir)
-
-                if should(a.trace_freq):
-                    print("recording trace")
-                    sv.summary_writer.add_run_metadata(run_metadata, "step_%d" % results["global_step"])
-
-                if should(a.progress_freq):
-                    # global_step will have the correct step count if we resume from a checkpoint
-                    train_epoch = math.ceil(results["global_step"] / steps_per_epoch)
-                    train_step = (results["global_step"] - 1) % steps_per_epoch + 1
-                    rate = (step + 1) * a.batch_size / (time.time() - start)
-                    remaining = (max_steps - step) * a.batch_size / rate
-                    print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (
-                        train_epoch, train_step, rate, remaining / 60))
-                    print("discrim_loss", results["discrim_loss"])
-                    print("gen_loss_GAN", results["gen_loss_GAN"])
-                    print("gen_loss_L1", results["gen_loss_L1"])
-
-                if should(a.save_freq):
-                    print("saving model")
-                    saver.save(sess, os.path.join(a.output_dir, "model"), global_step=sv.global_step)
-
-                if sv.should_stop():
-                    break
+            if sv.should_stop():
+                break
 
 
 if __name__ == '__main__':

@@ -4,8 +4,8 @@ import os
 import numpy as np
 import tensorflow as tf
 from vacuum.model import create_generator
-from vacuum.io import deprocess, preprocess
-from vacuum.io import fits_open
+from vacuum.io_ import deprocess, preprocess
+from vacuum.io_ import fits_open
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output_dir", required=True, help="where to put output files")
@@ -22,7 +22,8 @@ if a.checkpoint is None:
 CROP_SIZE = 256
 
 
-def load_data(dirty_path: str, psf_path: str):
+def load_data(dirty_path, psf_path):
+    # type: (str, str) -> tf.data.Dataset
     def dataset_generator():
         psf = fits_open(psf_path)[:, :, np.newaxis]
         dirty = fits_open(dirty_path)[:, :, np.newaxis]
@@ -48,7 +49,10 @@ min_flux, max_flux, psf, dirty = iter.get_next()
 scaled_dirty = preprocess(dirty, min_flux, max_flux)
 scaled_psf = preprocess(psf, min_flux, max_flux)
 
-input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
+if a.disable_psf:
+    input_ = scaled_dirty
+else:
+    input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
 
 with tf.variable_scope("generator"):
     generator =  create_generator(input_, 1, ngf=a.ngf, separable_conv=a.separable_conv)

@@ -34,8 +34,8 @@ def transform(image, flip, seed, scale_size, crop_size):
     return r
 
 
-def load_data(path, crop_size, flip, scale_size, max_epochs, batch_size, start=None, end=None):
-    # type: (str, int, bool, int, int, int, Optional[int], Optional[int]) -> (tf.data.Dataset, int)
+def load_data(path, crop_size, flip, scale_size, max_epochs, batch_size, loop=False, start=None, end=None):
+    # type: (str, int, bool, int, int, int, bool, Optional[int], Optional[int]) -> (tf.data.Dataset, int)
     """
     Point this to a path containing fits files fallowing naming schema <number>-<type>.fits
 
@@ -87,7 +87,8 @@ def load_data(path, crop_size, flip, scale_size, max_epochs, batch_size, start=N
     t = lambda i: transform(i, flip, seed, scale_size, crop_size)
     ds = ds.map(lambda i, mn, mx, psf, drty, skmd: (i, mn, mx, t(psf), t(drty), t(skmd)))
 
-    ds = ds.repeat(max_epochs)
+    if loop:
+        ds = ds.repeat(max_epochs)
 
     ds = ds.batch(batch_size)
     return ds, count
