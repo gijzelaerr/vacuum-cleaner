@@ -2,7 +2,6 @@
 This is the cleaning (testing) only code used for the vacuum-clean command
 """
 from __future__ import division
-from math import ceil
 import os
 import sys
 import numpy as np
@@ -11,17 +10,16 @@ from astropy.io import fits
 import queue
 import tensorflow as tf
 from scipy.signal import fftconvolve
-from vacuum.io import deprocess, preprocess, fits_open
-from vacuum.model import create_model
+from vacuum.io import deprocess, preprocess
+from vacuum.model import create_generator
 from vacuum.util import get_prefix, AttrDict
 
 
-
-#graph_path = '/home/gijs/Work/vacuum-cleaner/train/meerkat16/frozen.pb'
 a = AttrDict()
 a.EPS = 1e-12
 a.beta1 = 0.5
 a.checkpoint = os.path.join(get_prefix(), "share/vacuum/model")
+#a.checkpoint = os.path.join(get_prefix(), "train/meerkat16_deep2like")
 a.batch_size = 5
 a.gan_weight = 1.0
 a.l1_weight = 100.0
@@ -196,18 +194,13 @@ usage: {sys.argv[0]}  dirty.fits psf.fits
     scaled_psf = (psf * 2) - 1
     input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
 
-    model = create_model(input_, scaled_dirty, a.EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
-                         l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf)
-
-    deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
-
-    #graph = load_graph(graph_path)
-    #with tf.Session(graph=graph) as sess:
-        #init = tf.global_variables_initializer()
-        #sess.run(init)
+    with tf.variable_scope("generator"):
+        outputs = create_generator(input_, 1, a.ngf, a.separable_conv)
+        deprocessed_output = deprocess(outputs, min_flux, max_flux)
 
     queue_ = IterableQueue()
     with tf.Session() as sess:
+        print("restoring data from checkpoint " + a.checkpoint)
         checkpoint = tf.train.latest_checkpoint(a.checkpoint)
         tf.train.Saver().restore(sess, checkpoint)
 
