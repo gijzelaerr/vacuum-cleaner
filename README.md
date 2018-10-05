@@ -45,7 +45,7 @@ $ vacuum-clean dirty.fits psf.fits
 
 ## Training
 
-For now undocumented, but you should use ``vacuum.manual`` and the output of
-[spiel](https://github.com/gijzelaerr/spiel/) as training data.
+Have a look at `vacuum-train --help` or at the source. Intended to be trained with
+[spiel](https://github.com/gijzelaerr/spiel/) as training data generator.
 
 

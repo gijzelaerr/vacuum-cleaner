@@ -7,7 +7,7 @@ import sys
 import numpy as np
 
 from vacuum.io_ import fits_encode, save_images, deprocess, preprocess, fits_open
-from vacuum.model import create_model
+from vacuum.model import create_generator
 from vacuum.util import shift, get_prefix, AttrDict
 from typing import List
 
@@ -27,7 +27,8 @@ a.scale_size = CROP_SIZE
 a.separable_conv = False
 
 
-def load_data(dirties: List[str], psfs: List[str]):
+def load_data(dirties, psfs):
+    # type: (List[str], List[str]) -> (tf.data.Dataset, int)
     count = len(dirties)
 
     def dataset_generator():
@@ -48,12 +49,12 @@ def load_data(dirties: List[str], psfs: List[str]):
 
 def main():
     if len(sys.argv) != 3:
-        print(f"""
-usage: {sys.argv[0]}  dirty-0.fits,dirty-1.fits,dirty-2.fits  psf-0.fits,psf-1.fits,psf2.fits
+        print("""
+usage: {}  dirty-0.fits,dirty-1.fits,dirty-2.fits  psf-0.fits,psf-1.fits,psf2.fits
         
- note: names don't matter, order does. only supports fits files of {CROP_SIZE}x{CROP_SIZE}
+ note: names don't matter, order does. only supports fits files of {}x{}
        will write output the current folder.
-""")
+""".format(sys.argv[0], CROP_SIZE, CROP_SIZE))
         sys.exit(1)
 
     dirties = [os.path.realpath(i) for i in sys.argv[1].split(',')]
@@ -69,10 +70,10 @@ usage: {sys.argv[0]}  dirty-0.fits,dirty-1.fits,dirty-2.fits  psf-0.fits,psf-1.f
 
     input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
 
-    model = create_model(input_, scaled_dirty, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
-                         l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf)
-
-    deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
+    # set up the network
+    with tf.variable_scope("generator"):
+        outputs = create_generator(input_, 1, a.ngf, a.separable_conv)
+        deprocessed_output = deprocess(outputs, min_flux, max_flux)
 
     with tf.name_scope("calculate_residuals"):
         shifted = shift(psf, y=-1, x=-1)

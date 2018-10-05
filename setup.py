@@ -60,6 +60,7 @@ setup(
     entry_points={
       'console_scripts': [
         'vacuum-cleaner = vacuum.stitch:main',
+        'vacuum-trainer = vacuum.train:main',
         ]
     }
 )
