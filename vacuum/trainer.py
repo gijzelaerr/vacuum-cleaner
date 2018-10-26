@@ -98,7 +98,7 @@ def main():
     # You can use feedable iterators with a variety of different kinds of iterator
     # (such as one-shot and initializable iterators).
     training_iterator = train_batch.make_one_shot_iterator()
-    validation_iterator = validate_batch.make_initializable_iterator()
+    validation_iterator = validate_batch.make_one_shot_iterator()
 
     with tf.name_scope("scaling_flux"):
         scaled_skymodel = preprocess(skymodel, min_flux, max_flux)
@@ -165,8 +165,8 @@ def main():
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
 
-    val_gen_loss_GAN_summary = tf.summary.scalar("Validation generator_loss_GAN", model.gen_loss_GAN)
-    val_gen_loss_L1_summary = tf.summary.scalar("Validation generator_loss_L1", model.gen_loss_L1)
+    tf.summary.scalar("Validation generator_loss_GAN", model.gen_loss_GAN)
+    tf.summary.scalar("Validation generator_loss_L1", model.gen_loss_L1)
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
@@ -177,14 +177,20 @@ def main():
     with tf.name_scope("parameter_count"):
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
 
-    saver = tf.train.Saver(max_to_keep=100)
-
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
-    sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
+
+    validation_summary_op = tf.summary.merge_all()
+    train_summary_op = tf.summary.merge_all()
+
+    validation_summary_writer = tf.summary.FileWriter(logdir=logdir + '/validation')
+    train_summary_writer = tf.summary.FileWriter(logdir=logdir + '/train')
+
+    saver = tf.train.Saver(max_to_keep=100)
+    sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None, summary_writer=train_summary_writer,
+                             summary_op=train_summary_op)
+
     with sv.managed_session() as sess:
         print("parameter_count =", sess.run(parameter_count))
-
-        validation_summary_writer = tf.summary.FileWriter(logdir=sv._logdir + '/validation')
 
         # The `Iterator.string_handle()` method returns a tensor that can be evaluated
         # and used to feed the `handle` placeholder.
@@ -206,6 +212,7 @@ def main():
             options = None
             run_metadata = None
             if should(a.trace_freq):
+                print("preparing")
                 options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
 
@@ -215,14 +222,17 @@ def main():
             }
 
             if should(a.progress_freq):
+                print("progress step")
                 fetches["discrim_loss"] = model.discrim_loss
                 fetches["gen_loss_GAN"] = model.gen_loss_GAN
                 fetches["gen_loss_L1"] = model.gen_loss_L1
 
             if should(a.summary_freq):
+                print("preparing summary")
                 fetches["summary"] = sv.summary_op
 
             if should(a.display_freq):
+                print("display step step")
                 fetches["display"] = display_fetches
 
             results = sess.run(fetches, options=options, run_metadata=run_metadata, feed_dict={handle: training_handle})
@@ -256,18 +266,17 @@ def main():
                 saver.save(sess, os.path.join(a.output_dir, "model"), global_step=sv.global_step)
 
             if should(a.validation_freq):
-                print("Validation!!!")
+                print("validation step")
                 validation_fetches = {
-                    "validation_gen_loss_GAN": val_gen_loss_GAN_summary,
-                    "validation_gen_loss_L1": val_gen_loss_L1_summary,
+                    "validation_gen_loss_GAN": model.gen_loss_GAN,
+                    "validation_gen_loss_L1": model.gen_loss_L1,
+                    "summary": validation_summary_op,
                 }
 
                 validation_results = sess.run(validation_fetches, feed_dict={handle: validation_handle})
                 print("validation gen_loss_GAN", validation_results["validation_gen_loss_GAN"])
                 print("validation gen_loss_L1", validation_results["validation_gen_loss_L1"])
-
-                #validation_summary_writer.add_summary(val_gen_loss_GAN_summary, results["global_step"])
-                #validation_summary_writer.add_summary(val_gen_loss_L1_summary, results["global_step"])
+                validation_summary_writer.add_summary(validation_results["summary"], results["global_step"])
 
             if sv.should_stop():
                 break

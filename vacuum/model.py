@@ -140,10 +140,14 @@ def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_
         discrim_loss = tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))
 
     with tf.name_scope("generator_loss"):
+
+        # see if we can penalise high values more
+        scaling = lambda x: 10**((x+1)*3)
+
         # predict_fake => 1
         # abs(targets - outputs) => 0
         gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
-        gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
+        gen_loss_L1 = tf.reduce_mean(tf.abs(scaling(targets) - scaling(outputs)))
         gen_loss = gen_loss_GAN * gan_weight + gen_loss_L1 * l1_weight
 
     with tf.name_scope("discriminator_train"):
