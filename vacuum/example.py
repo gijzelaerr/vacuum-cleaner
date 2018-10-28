@@ -1,5 +1,5 @@
 """
-This is the cleaning (testing) only code used for the vacuum-clean command
+This is an example on how to use vacuum to clean.
 """
 import tensorflow as tf
 import os

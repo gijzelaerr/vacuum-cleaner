@@ -19,8 +19,8 @@ parser.add_argument("--max_steps", type=int, help="number of training steps (0 t
 parser.add_argument("--max_epochs", type=int, help="number of training epochs")
 parser.add_argument("--separable_conv", action="store_true", help="use separable convolutions in the generator")
 parser.add_argument("--batch_size", type=int, default=1, help="number of images in batch")
-parser.add_argument("--test_start", type=int, help="start index of test dataset subset", default=1900)
-parser.add_argument("--test_end", type=int, help="end index of test dataset subset", default=1999)
+parser.add_argument("--test_start", type=int, help="start index of test dataset subset", default=1800)
+parser.add_argument("--test_end", type=int, help="end index of test dataset subset", default=1900)
 parser.add_argument('--disable_psf', action='store_true', help="disable the concatenation of the PSF as a channel")
 
 a = parser.parse_args()

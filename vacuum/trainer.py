@@ -21,7 +21,7 @@ parser.add_argument("--seed", type=int)
 
 parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
 parser.add_argument("--max_epochs", type=int, help="number of training epochs")
-parser.add_argument("--validation_freq", type=int, default=100, help="update validations every validation_freq steps")
+parser.add_argument("--validation_freq", type=int, default=0, help="update validations every validation_freq steps")
 parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
 parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
@@ -44,8 +44,8 @@ parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN
 parser.add_argument("--train_start", type=int, help="start index of train dataset subset", default=0)
 parser.add_argument("--train_end", type=int, help="end index of train dataset subset", default=1800)
 
-parser.add_argument("--validate_start", type=int, help="start index of train dataset subset", default=1800)
-parser.add_argument("--validate_end", type=int, help="end index of train dataset subset", default=1900)
+parser.add_argument("--validate_start", type=int, help="start index of train dataset subset", default=1900)
+parser.add_argument("--validate_end", type=int, help="end index of train dataset subset", default=2000)
 
 parser.add_argument('--disable_psf', action='store_true', help="disable the concatenation of the PSF as a channel")
 
@@ -86,19 +86,17 @@ def main():
                              start=a.train_start, end=a.train_end, loop=True)
     steps_per_epoch = int(math.ceil(train_count / a.batch_size))
     print("train count = %d" % train_count)
+    training_iterator = train_batch.make_one_shot_iterator()
 
-    validate_batch, validate_count = load_data(a.input_dir, CROP_SIZE, a.flip, a.scale_size, a.max_epochs, a.batch_size,
-                             start=a.validate_start, end=a.validate_end)
-    print("validate count = %d" % validate_count)
+    if a.validation_freq:
+        validate_batch, validate_count = load_data(a.input_dir, CROP_SIZE, a.flip, a.scale_size, a.max_epochs,
+                                                   a.batch_size, start=a.validate_start, end=a.validate_end, loop=True)
+        print("validate count = %d" % validate_count)
+        validation_iterator = validate_batch.make_one_shot_iterator()
 
     handle = tf.placeholder(tf.string, shape=[])
     iterator = tf.data.Iterator.from_string_handle(handle, train_batch.output_types, train_batch.output_shapes)
     index, min_flux, max_flux, psf, dirty, skymodel = iterator.get_next()
-
-    # You can use feedable iterators with a variety of different kinds of iterator
-    # (such as one-shot and initializable iterators).
-    training_iterator = train_batch.make_one_shot_iterator()
-    validation_iterator = validate_batch.make_one_shot_iterator()
 
     with tf.name_scope("scaling_flux"):
         scaled_skymodel = preprocess(skymodel, min_flux, max_flux)
@@ -117,7 +115,8 @@ def main():
 
     # inputs and targets are [batch_size, height, width, channels]
     model = create_model(input_, scaled_skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
-                         l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf)
+                         l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf, psf=psf, min_flux=min_flux,
+                         max_flux=max_flux)
 
     deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
 
@@ -164,9 +163,11 @@ def main():
     tf.summary.scalar("discriminator_loss", model.discrim_loss)
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
+    tf.summary.scalar("generator_loss_mad", model.gen_loss_mad)
 
-    tf.summary.scalar("Validation generator_loss_GAN", model.gen_loss_GAN)
-    tf.summary.scalar("Validation generator_loss_L1", model.gen_loss_L1)
+    if a.validation_freq:
+        tf.summary.scalar("Validation generator_loss_GAN", model.gen_loss_GAN)
+        tf.summary.scalar("Validation generator_loss_L1", model.gen_loss_L1)
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
@@ -179,10 +180,11 @@ def main():
 
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
 
-    validation_summary_op = tf.summary.merge_all()
-    train_summary_op = tf.summary.merge_all()
+    if a.validation_freq:
+        validation_summary_op = tf.summary.merge_all()
+        validation_summary_writer = tf.summary.FileWriter(logdir=logdir + '/validation')
 
-    validation_summary_writer = tf.summary.FileWriter(logdir=logdir + '/validation')
+    train_summary_op = tf.summary.merge_all()
     train_summary_writer = tf.summary.FileWriter(logdir=logdir + '/train')
 
     saver = tf.train.Saver(max_to_keep=100)
@@ -195,7 +197,9 @@ def main():
         # The `Iterator.string_handle()` method returns a tensor that can be evaluated
         # and used to feed the `handle` placeholder.
         training_handle = sess.run(training_iterator.string_handle())
-        validation_handle = sess.run(validation_iterator.string_handle())
+
+        if a.validation_freq:
+            validation_handle = sess.run(validation_iterator.string_handle())
 
         max_steps = 2 ** 32
         if a.max_epochs is not None:
@@ -226,6 +230,7 @@ def main():
                 fetches["discrim_loss"] = model.discrim_loss
                 fetches["gen_loss_GAN"] = model.gen_loss_GAN
                 fetches["gen_loss_L1"] = model.gen_loss_L1
+                fetches["gen_loss_mad"] = model.gen_loss_mad
 
             if should(a.summary_freq):
                 print("preparing summary")
@@ -260,12 +265,13 @@ def main():
                 print("discrim_loss", results["discrim_loss"])
                 print("gen_loss_GAN", results["gen_loss_GAN"])
                 print("gen_loss_L1", results["gen_loss_L1"])
+                print("gen_loss_mad", results["gen_loss_mad"])
 
             if should(a.save_freq):
                 print("saving model")
                 saver.save(sess, os.path.join(a.output_dir, "model"), global_step=sv.global_step)
 
-            if should(a.validation_freq):
+            if a.validation_freq and should(a.validation_freq):
                 print("validation step")
                 validation_fetches = {
                     "validation_gen_loss_GAN": model.gen_loss_GAN,
@@ -279,7 +285,10 @@ def main():
                 validation_summary_writer.add_summary(validation_results["summary"], results["global_step"])
 
             if sv.should_stop():
+                print("supervisor things we should stop!")
                 break
+
+        print("done! bye")
 
 
 if __name__ == '__main__':
