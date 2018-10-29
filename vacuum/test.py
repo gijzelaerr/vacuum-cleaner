@@ -96,6 +96,7 @@ def main():
         if a.checkpoint is not None:
             print("loading model from checkpoint")
             checkpoint = tf.train.latest_checkpoint(a.checkpoint)
+            print("loaded {}".format(checkpoint))
             saver.restore(sess, checkpoint)
 
         max_steps = 2 ** 32

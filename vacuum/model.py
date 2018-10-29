@@ -10,7 +10,7 @@ from vacuum.io_ import deprocess
 
 Model = namedtuple("Model",
                    "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, "
-                   "gen_loss_GAN, gen_loss_L1, gen_loss_mad, gen_grads_and_vars, train")
+                   "gen_loss_GAN, gen_loss_L1, gen_loss_RES, gen_grads_and_vars, train")
 
 
 def create_generator(generator_inputs, generator_outputs_channels, ngf, separable_conv):
@@ -118,7 +118,10 @@ def create_discriminator(discrim_inputs, discrim_targets, ndf):
     return layers[-1]
 
 
-def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_weight, lr, beta1, psf, min_flux, max_flux):
+def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_weight, res_weight, lr, beta1, psf,
+                 min_flux, max_flux):
+    # type: (tf.Tensor, tf.Tensor, float, bool, int, int, float, float, float, float, float, tf.Tensor, float, float) -> Model
+
     with tf.variable_scope("generator"):
         out_channels = 1
         outputs = create_generator(inputs, out_channels, ngf, separable_conv)
@@ -149,17 +152,12 @@ def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_
         residuals = targets - convolved
 
     with tf.name_scope("generator_loss"):
-
-        # see if we can penalise high values more
-        scaling = lambda x: (x*10)**2
-
         # predict_fake => 1
         # abs(targets - outputs) => 0
         gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
-        gen_loss_L1 = tf.reduce_mean(scaling(tf.abs(targets - outputs)))
-        gen_loss_mad = tf.reduce_mean(tf.abs(residuals - tf.reduce_mean(residuals)))
-        #gen_loss = gen_loss_GAN * gan_weight + gen_loss_L1 * l1_weight + gen_loss_mad * l1_weight
-        gen_loss = gen_loss_GAN * gan_weight + gen_loss_mad * l1_weight
+        gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
+        gen_loss_RES = tf.reduce_mean(tf.abs(residuals - tf.reduce_mean(residuals)))
+        gen_loss = gen_loss_GAN * gan_weight + gen_loss_L1 * l1_weight + gen_loss_RES * res_weight
 
     with tf.name_scope("discriminator_train"):
         discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
@@ -175,7 +173,7 @@ def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_
             gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
-    update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_mad])
+    update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_RES])
 
     global_step = tf.train.get_or_create_global_step()
     incr_global_step = tf.assign(global_step, global_step + 1)
@@ -187,7 +185,7 @@ def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_
         discrim_grads_and_vars=discrim_grads_and_vars,
         gen_loss_GAN=ema.average(gen_loss_GAN),
         gen_loss_L1=ema.average(gen_loss_L1),
-        gen_loss_mad=ema.average(gen_loss_mad),
+        gen_loss_RES=ema.average(gen_loss_RES),
         gen_grads_and_vars=gen_grads_and_vars,
         outputs=outputs,
         train=tf.group(update_losses, incr_global_step, gen_train),

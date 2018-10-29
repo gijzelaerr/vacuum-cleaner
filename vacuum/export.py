@@ -86,5 +86,5 @@ with tf.Session() as sess:
     checkpoint = tf.train.latest_checkpoint(a.checkpoint)
     restore_saver.restore(sess, checkpoint)
     print("exporting model")
-    export_saver.export_meta_graph(filename=os.path.join(a.output_dir, "export.meta"))
-    export_saver.save(sess, os.path.join(a.output_dir, "export"), write_meta_graph=False)
+    #export_saver.export_meta_graph(filename=os.path.join(a.output_dir, "export.meta"))
+    export_saver.save(sess, os.path.join(a.output_dir, "export"), write_meta_graph=True) #, save_relative_paths=True)
