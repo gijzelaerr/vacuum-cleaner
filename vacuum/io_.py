@@ -59,16 +59,17 @@ def load_data(path, crop_size, flip, scale_size, max_epochs, batch_size, loop=Fa
             raise Exception("start out of range")
 
     if end:
-        if min_ < end <= max_:
+        if min_ < end <= max_ + 1:
             max_ = end
         else:
-            raise Exception("end out of range")
+            raise Exception("end ({}) out of range {} - {}".format(end, min_, max_))
 
     count = max_ - min_
 
     def dataset_generator():
-        for i in range(min_, max_ + 1):
+        for i in range(min_, max_):
             # add one channel
+            # header = fits.open("{}/{}-skymodel.fits".format(path, i))[0].header todo: we need to encode this as a string
             psf = fits_open("{}/{}-wsclean-psf.fits".format(path, i))[:, :, np.newaxis]
             dirty = fits_open("{}/{}-wsclean-dirty.fits".format(path, i))[:, :, np.newaxis]
             skymodel = fits_open("{}/{}-skymodel.fits".format(path, i))[:, :, np.newaxis]
