@@ -3,7 +3,8 @@ This is the cleaning (testing) only code used for the vacuum-clean command
 """
 from __future__ import division
 import os
-import sys
+from argparse import ArgumentParser
+import logging
 import numpy as np
 from itertools import product
 from astropy.io import fits
@@ -11,24 +12,29 @@ import tensorflow as tf
 from scipy.signal import fftconvolve
 from vacuum.io_ import deprocess, preprocess
 from vacuum.model import create_generator
-from vacuum.util import get_prefix, AttrDict, IterableQueue, shift
+from vacuum.util import IterableQueue
 
-a = AttrDict()
-a.checkpoint = os.path.join(get_prefix(), "share/vacuum/model")
-a.ngf = 64
-a.output_dir = "."
-a.size = 256
-a.pad = 50
-a.separable_conv = False
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-stride = a.size - a.pad * 2
+parser = ArgumentParser()
+parser.add_argument("checkpoint", help="path to trained model directory")
+parser.add_argument("dirty", help="path to dirty fits file")
+parser.add_argument("psf", help="path to psf fits file")
+a = parser.parse_args()
 
+NGF = 64
+SIZE = 256
+PAD = 50
+SEPERABLE_CONV = False
+
+stride = SIZE - PAD * 2
 
 # shortcut for the corners
-TL = (slice(None, a.size), slice(None, a.size))
-BL = (slice(-a.size, None), slice(None, a.size))
-TR = (slice(None, a.size), slice(-a.size, None))
-BR = (slice(-a.size, None), slice(-a.size, None))
+TL = (slice(None, SIZE), slice(None, SIZE))
+BL = (slice(-SIZE, None), slice(None, SIZE))
+TR = (slice(None, SIZE), slice(-SIZE, None))
+BR = (slice(-SIZE, None), slice(-SIZE, None))
 
 
 def padded_generator(big_data, psf, n_r, n_c):
@@ -43,28 +49,28 @@ def padded_generator(big_data, psf, n_r, n_c):
 
     for r in range(1, n_r):  # step 2: edges left to right
         start = stride * r
-        stamp = big_data[start:start + a.size, :a.size]  # 0,0 -> r,0
+        stamp = big_data[start:start + SIZE, :SIZE]  # 0,0 -> r,0
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
-        stamp = big_data[start:start + a.size, -a.size:]  # 0,c -> r,c
+        stamp = big_data[start:start + SIZE, -SIZE:]  # 0,c -> r,c
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
     for c in range(1, n_c):  # step 2: edges, top to bottom
         start = stride * c
-        stamp = big_data[:a.size, start:start + a.size]  # 0,0 -> 0,c
+        stamp = big_data[:SIZE, start:start + SIZE]  # 0,0 -> 0,c
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
-        stamp = big_data[-a.size:, start:start + a.size]  # 0,0 -> r,c
+        stamp = big_data[-SIZE:, start:start + SIZE]  # 0,0 -> r,c
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
     for r, c in product(range(1, n_r), range(1, n_c)):  # step 3, inside
         start_r = stride * r
         start_c = stride * c
-        stamp = big_data[start_r:start_r + a.size, start_c:start_c + a.size]
+        stamp = big_data[start_r:start_r + SIZE, start_c:start_c + SIZE]
         yield i, stamp.min(), stamp.max(), psf, stamp
         i += 1
 
@@ -75,9 +81,9 @@ def load_data(big_data, psf_data, n_r, n_c):
     """
 
     count = 4 + (n_r - 1 + n_c - 1) * 2 + (n_r - 1) * (n_c - 1)
-    print("PSF: {}".format(psf_data.shape))
-    print("big FIST: {}".format(big_data.shape))
-    print("generating a maximum of {} images".format(count))
+    logger.debug("PSF: {}".format(psf_data.shape))
+    logger.debug("big FIST: {}".format(big_data.shape))
+    logger.info("generating a maximum of {} images".format(count))
 
     ds = tf.data.Dataset.from_generator(lambda: padded_generator(big_data, psf_data, n_r, n_c),
                                         output_shapes=((), (), ()) + ((256, 256, 1),) * 2,
@@ -93,44 +99,40 @@ def restore(shape, generator, n_r, n_c):
     """
     restored = np.zeros(shape=shape, dtype='>f4')
 
-    print("step 1: corners")
+    logger.info("step 1: corners")
     for r, c in (TL, TR, BL, BR):
         stamp = next(generator).squeeze()
         restored[r, c] = stamp
 
-    print("step 2: edges")
+    logger.info("step 2: edges")
     for r in range(1, n_r):
         start = stride * r
-        stamp = next(generator).squeeze()[a.pad:-a.pad,:]
-        restored[start + a.pad:start + a.size - a.pad, :a.size] = stamp
-        stamp = next(generator).squeeze()[a.pad:-a.pad,:]
-        restored[start + a.pad:start + a.size - a.pad, -a.size:] = stamp
+        stamp = next(generator).squeeze()[PAD:-PAD,:]
+        restored[start + PAD:start + SIZE - PAD, :SIZE] = stamp
+        stamp = next(generator).squeeze()[PAD:-PAD,:]
+        restored[start + PAD:start + SIZE - PAD, -SIZE:] = stamp
 
     for c in range(1, n_c):
         start = stride * c
-        stamp = next(generator).squeeze()[:,a.pad:-a.pad]
-        restored[:a.size, start + a.pad:start + a.size - a.pad] = stamp
-        stamp = next(generator).squeeze()[:,a.pad:-a.pad]
-        restored[-a.size:, start + a.pad:start + a.size - a.pad] = stamp
+        stamp = next(generator).squeeze()[:,PAD:-PAD]
+        restored[:SIZE, start + PAD:start + SIZE - PAD] = stamp
+        stamp = next(generator).squeeze()[:,PAD:-PAD]
+        restored[-SIZE:, start + PAD:start + SIZE - PAD] = stamp
 
-    print("step 3: edges")
+    logger.info("step 3: edges")
     for r, c in product(range(1, n_r), range(1, n_c)):
         start_r = stride * r
         start_c = stride * c
-        stamp = next(generator).squeeze()[a.pad:-a.pad,a.pad:-a.pad]
-        restored[start_r + a.pad:start_r + a.size - a.pad,
-                 start_c + a.pad:start_c + a.size - a.pad] = stamp
+        stamp = next(generator).squeeze()[PAD:-PAD,PAD:-PAD]
+        restored[start_r + PAD:start_r + SIZE - PAD,
+                 start_c + PAD:start_c + SIZE - PAD] = stamp
 
     return restored
 
 
 def main():
-    if len(sys.argv) != 3:
-        print("\nusage: {}  dirty.fits psf.fits\n".format(sys.argv[0]))
-        sys.exit(1)
-
-    dirty_path = os.path.realpath(sys.argv[1])
-    psf_path = os.path.realpath(sys.argv[2])
+    dirty_path = os.path.realpath(a.dirty)
+    psf_path = os.path.realpath(a.psf)
     big_fits = fits.open(str(dirty_path))[0]
     big_data = big_fits.data.squeeze()[:, :, np.newaxis]
     big_psf_fits = fits.open(str(psf_path))[0]
@@ -139,12 +141,12 @@ def main():
     # we need a smaller PSF to give as a channel to the dirty tiles
     big_psf_data = big_psf_fits.data.squeeze()
     big_psf_data = big_psf_data / big_psf_data.max()
-    psf_small = big_psf_data[big_psf_data.shape[0] // 2 - a.size // 2 + 1:big_psf_data.shape[0] // 2 + a.size // 2 + 1,
-                big_psf_data.shape[1] // 2 - a.size // 2 + 1:big_psf_data.shape[1] // 2 + a.size // 2 + 1]
+    psf_small = big_psf_data[big_psf_data.shape[0] // 2 - SIZE // 2 + 1:big_psf_data.shape[0] // 2 + SIZE // 2 + 1,
+                big_psf_data.shape[1] // 2 - SIZE // 2 + 1:big_psf_data.shape[1] // 2 + SIZE // 2 + 1]
 
-    print(psf_small.shape)
-    print((big_psf_data.shape[0] // 2 - a.size // 2 + 1, big_psf_data.shape[0] // 2 + a.size // 2 + 1,
-           big_psf_data.shape[1] // 2 - a.size // 2 + 1, big_psf_data.shape[1] // 2 + a.size // 2 + 1))
+    logger.debug(psf_small.shape)
+    logger.debug((big_psf_data.shape[0] // 2 - SIZE // 2 + 1, big_psf_data.shape[0] // 2 + SIZE // 2 + 1,
+           big_psf_data.shape[1] // 2 - SIZE // 2 + 1, big_psf_data.shape[1] // 2 + SIZE // 2 + 1))
 
     psf_small = psf_small[:, :, np.newaxis]
 
@@ -162,13 +164,13 @@ def main():
 
     # set up the network
     with tf.variable_scope("generator"):
-        outputs = create_generator(input_, 1, a.ngf, a.separable_conv)
+        outputs = create_generator(input_, 1, NGF, SEPERABLE_CONV)
         deprocessed_output = deprocess(outputs, min_flux, max_flux)
 
     # run all data through the network
     queue_ = IterableQueue()
     with tf.Session() as sess:
-        print("restoring data from checkpoint " + a.checkpoint)
+        logger.info("restoring data from checkpoint " + a.checkpoint)
         checkpoint = tf.train.latest_checkpoint(a.checkpoint)
         tf.train.Saver().restore(sess, checkpoint)
 
@@ -195,7 +197,7 @@ def main():
     hdul = fits.HDUList([hdu])
     hdul.writeto("vacuum-residual.fits", overwrite=True)
 
-    print("done!")
+    logger.info("done!")
 
 
 if __name__ == '__main__':

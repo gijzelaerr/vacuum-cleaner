@@ -1,0 +1,5 @@
+.venv*/
+.virtualenv*/
+test/
+train/
+.git/
