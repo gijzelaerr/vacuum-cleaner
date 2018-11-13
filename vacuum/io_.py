@@ -25,17 +25,18 @@ def transform(image, flip, seed, scale_size, crop_size):
 
     # area produces a nice downscaling, but does nearest neighbor for upscaling
     # assume we're going to be doing downscaling here
-    if scale_size > crop_size:
-        r = tf.image.resize_images(r, [scale_size, scale_size], method=tf.image.ResizeMethod.AREA)
-        offset = tf.cast(tf.floor(tf.random_uniform([2], 0, scale_size - crop_size + 1, seed=seed)), dtype=tf.int32)
-        r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], crop_size, crop_size)
-    elif scale_size < crop_size:
-        raise Exception("scale size cannot be less than crop size")
+    if scale_size and crop_size:
+        if scale_size > crop_size:
+            r = tf.image.resize_images(r, [scale_size, scale_size], method=tf.image.ResizeMethod.AREA)
+            offset = tf.cast(tf.floor(tf.random_uniform([2], 0, scale_size - crop_size + 1, seed=seed)), dtype=tf.int32)
+            r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], crop_size, crop_size)
+        elif scale_size < crop_size:
+            raise Exception("scale size cannot be less than crop size")
     return r
 
 
-def load_data(path, crop_size, flip, scale_size, max_epochs, batch_size, loop=False, start=None, end=None):
-    # type: (str, int, bool, int, int, int, bool, Optional[int], Optional[int]) -> (tf.data.Dataset, int)
+def load_data(path, crop_size=256, flip=False, scale_size=None, max_epochs=1, batch_size=1, loop=False, start=None, end=None):
+    # type: (str, Optional[int], bool, Optional[int], int, int, bool, Optional[int], Optional[int]) -> (tf.data.Dataset, int)
     """
     Point this to a path containing fits files fallowing naming schema <number>-<type>.fits
 
@@ -56,7 +57,7 @@ def load_data(path, crop_size, flip, scale_size, max_epochs, batch_size, loop=Fa
         if min_ <= start < max_:
             min_ = start
         else:
-            raise Exception("start out of range")
+            raise Exception("start ({}) out of range {} - {}".format(start, min_, max_))
 
     if end:
         if min_ < end <= max_ + 1:
@@ -78,7 +79,7 @@ def load_data(path, crop_size, flip, scale_size, max_epochs, batch_size, loop=Fa
             yield i, min_flux, max_flux, psf, dirty, skymodel
 
     ds = tf.data.Dataset.from_generator(dataset_generator,
-                                        output_shapes=((), (), ()) + ((256, 256, 1),) * 3,
+                                        output_shapes=((), (), ()) + ((crop_size, crop_size, 1),) * 3,
                                         output_types=(tf.int32, tf.float32, tf.float32) + (tf.float32,) * 3
                                         )
 

@@ -21,7 +21,7 @@ parser.add_argument("--seed", type=int)
 
 parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
 parser.add_argument("--max_epochs", type=int, help="number of training epochs")
-parser.add_argument("--validation_freq", type=int, default=100, help="update validations every validation_freq steps")
+parser.add_argument("--validation_freq", type=int, default=0, help="update validations every validation_freq steps")
 parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
 parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
@@ -38,9 +38,10 @@ parser.add_argument("--flip", dest="flip", action="store_true", help="flip image
 parser.set_defaults(flip=True)
 parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate for adam")
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
-parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
+parser.add_argument("--l1_weight", type=float, default=200.0, help="weight on L1 term for generator gradient")
+parser.add_argument("--l0_weight", type=float, default=0.001, help="weight on L0 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
-parser.add_argument("--res_weight", type=float, default=50.0, help="weight on residual term for generator gradient")
+parser.add_argument("--res_weight", type=float, default=30.0, help="weight on residual term for generator gradient")
 
 parser.add_argument("--train_start", type=int, help="start index of train dataset subset", default=0)
 parser.add_argument("--train_end", type=int, help="end index of train dataset subset", default=1800)
@@ -49,7 +50,6 @@ parser.add_argument("--validate_start", type=int, help="start index of train dat
 parser.add_argument("--validate_end", type=int, help="end index of train dataset subset", default=2000)
 
 parser.add_argument('--disable_psf', action='store_true', help="disable the concatenation of the PSF as a channel")
-
 
 a = parser.parse_args()
 
@@ -103,11 +103,6 @@ def main():
         scaled_dirty = preprocess(dirty, min_flux, max_flux)
         scaled_psf = (psf * 2) - 1
 
-    ## i'll just leave this here in case we decide to do something with visibilities again (unlikely)
-    # vis = tf.fft2d(tf.complex(scaled_dirty, tf.zeros(shape=(a.batch_size, CROP_SIZE, CROP_SIZE, 1))))
-    # real = tf.real(vis)
-    # imag = tf.imag(vis)
-
     if a.disable_psf:
         input_ = scaled_dirty
     else:
@@ -116,7 +111,7 @@ def main():
     # inputs and targets are [batch_size, height, width, channels]
     model = create_model(input_, scaled_skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
                          l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf, psf=psf, min_flux=min_flux,
-                         max_flux=max_flux, res_weight=a.res_weight)
+                         max_flux=max_flux, res_weight=a.res_weight, l0_weight=a.l0_weight)
 
     deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
 
@@ -163,11 +158,13 @@ def main():
     tf.summary.scalar("discriminator_loss", model.discrim_loss)
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
+    tf.summary.scalar("generator_loss_L0", model.gen_loss_L0)
     tf.summary.scalar("generator_loss_RES", model.gen_loss_RES)
 
     if a.validation_freq:
         tf.summary.scalar("Validation generator_loss_GAN", model.gen_loss_GAN)
         tf.summary.scalar("Validation generator_loss_L1", model.gen_loss_L1)
+        tf.summary.scalar("Validation generator_loss_L1", model.gen_loss_L0)
 
     """
     for var in tf.trainable_variables():
@@ -230,6 +227,7 @@ def main():
                 fetches["discrim_loss"] = model.discrim_loss
                 fetches["gen_loss_GAN"] = model.gen_loss_GAN
                 fetches["gen_loss_L1"] = model.gen_loss_L1
+                fetches["gen_loss_L0"] = model.gen_loss_L0
                 fetches["gen_loss_RES"] = model.gen_loss_RES
 
             if should(a.summary_freq):
@@ -265,6 +263,7 @@ def main():
                 print("discrim_loss", results["discrim_loss"])
                 print("gen_loss_GAN", results["gen_loss_GAN"])
                 print("gen_loss_L1", results["gen_loss_L1"])
+                print("gen_loss_L0", results["gen_loss_L0"])
                 print("gen_loss_RES", results["gen_loss_RES"])
 
             if should(a.save_freq):
@@ -276,12 +275,14 @@ def main():
                 validation_fetches = {
                     "validation_gen_loss_GAN": model.gen_loss_GAN,
                     "validation_gen_loss_L1": model.gen_loss_L1,
+                    "validation_gen_loss_L0": model.gen_loss_L0,
                     "summary": validation_summary_op,
                 }
 
                 validation_results = sess.run(validation_fetches, feed_dict={handle: validation_handle})
                 print("validation gen_loss_GAN", validation_results["validation_gen_loss_GAN"])
                 print("validation gen_loss_L1", validation_results["validation_gen_loss_L1"])
+                print("validation gen_loss_L0", validation_results["validation_gen_loss_L0"])
                 validation_summary_writer.add_summary(validation_results["summary"], results["global_step"])
 
             if sv.should_stop():

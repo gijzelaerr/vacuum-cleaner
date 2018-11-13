@@ -1,6 +1,6 @@
 import queue
 
-from tensorflow import image
+import tensorflow as tf
 from repoze.lru import lru_cache
 from os import path, getcwd
 import sys
@@ -35,6 +35,14 @@ def get_prefix(file='share/vacuum/model/checkpoint'):
         if path.isfile(path.join(option, file)):
             return option
     raise Exception("Can't find vacuum installation")
+
+
+def vis(dirty, batch_size, crop_size):
+    """convert image to visibilies"""
+    vis = tf.fft2d(tf.complex(dirty, tf.zeros(shape=(batch_size, crop_size, crop_size, 1))))
+    real = tf.real(vis)
+    imag = tf.imag(vis)
+    return real, imag
 
 
 class AttrDict(dict):

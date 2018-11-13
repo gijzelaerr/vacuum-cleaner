@@ -25,7 +25,7 @@ parser.add_argument('--disable_psf', action='store_true', help="disable the conc
 
 a = parser.parse_args()
 
-CROP_SIZE = 256
+CROP_SIZE = 512
 
 
 def prepare():
