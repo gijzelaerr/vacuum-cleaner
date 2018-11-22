@@ -21,7 +21,7 @@ def transform(image, flip, seed, scale_size, crop_size):
     r = image
     if flip:
         r = tf.image.random_flip_left_right(r, seed=seed)
-        r = tf.image.random_flip_up_down(r, seed=seed)
+        r = tf.image.random_flip_up_down(r, seed=seed+1)
 
     # area produces a nice downscaling, but does nearest neighbor for upscaling
     # assume we're going to be doing downscaling here
@@ -35,8 +35,16 @@ def transform(image, flip, seed, scale_size, crop_size):
     return r
 
 
-def load_data(path, crop_size=256, flip=False, scale_size=None, max_epochs=1, batch_size=1, loop=False, start=None, end=None):
-    # type: (str, Optional[int], bool, Optional[int], int, int, bool, Optional[int], Optional[int]) -> (tf.data.Dataset, int)
+def load_data(path,             # type: str
+              crop_size=256,    # type: Optional[int]
+              flip=False,       # type: bool
+              scale_size=None,  # type: Optional[int]
+              max_epochs=1,     # type: int
+              batch_size=1,     # type: int
+              loop=False,       # type: bool
+              start=None,       # type: Optional[int]
+              end=None          # type: Optional[int]
+              ):                # type: (...) -> (tf.data.Dataset, int)
     """
     Point this to a path containing fits files fallowing naming schema <number>-<type>.fits
 

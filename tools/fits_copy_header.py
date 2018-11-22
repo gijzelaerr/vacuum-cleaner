@@ -13,10 +13,11 @@ def copy_header(source_path, target_path):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print("\n  usage: {} <source.fits> <target.fits>\n".format(sys.argv[0]))
+    if len(sys.argv) < 3:
+        print("\n  usage: {} <source.fits> <target.fits> [<target.fits> [...]]\n".format(sys.argv[0]))
         sys.exit(1)
 
     source_path = sys.argv[1]
-    target_path = sys.argv[2]
-    copy_header(source_path, target_path)
+    target_paths = sys.argv[2:]
+    for target in target_paths:
+        copy_header(source_path, target)

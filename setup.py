@@ -26,6 +26,7 @@ setup(
     version=__version__,
     packages=find_packages(),
     install_requires=install_requires,
+    tests_require=['pytest'],
     extras_require=extras_require,
     author="Gijs Molenaar",
     author_email="gijs@pythonic.nl",
