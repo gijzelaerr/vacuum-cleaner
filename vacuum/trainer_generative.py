@@ -14,7 +14,6 @@ from vacuum.model import create_model
 from vacuum.util import shift
 from vacuum.datasets import generative_model
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--psf_glob", required=True, help="GLob to find psfs")
 parser.add_argument("--output_dir", required=True, help="where to put output files")
@@ -45,6 +44,9 @@ parser.add_argument("--res_weight", type=float, default=30.0, help="weight on re
 parser.add_argument("--train_start", type=int, help="start index of train dataset subset", default=0)
 parser.add_argument("--train_end", type=int, help="end index of train dataset subset", default=1800)
 parser.add_argument('--disable_psf', action='store_true', help="disable the concatenation of the PSF as a channel")
+
+parser.add_argument("--flux_scale_min", type=float, default=10.0, help="Min flux scale relative to estimated noise")
+parser.add_argument("--flux_scale_max", type=float, default=10.0, help="Max flux scale relative to estimated noise")
 
 a = parser.parse_args()
 
@@ -78,7 +80,9 @@ def visual_scaling(img):
 def main():
     prepare()
 
-    train_batch = generative_model("/scratch/datasets/meerkat16_deep2like_morerange/*-bigpsf-psf.fits")
+    train_batch = generative_model("/scratch/datasets/meerkat16_deep2like_morerange/*-bigpsf-psf.fits",
+                                   flux_scale_min=a.flux_scale_min,
+                                   flux_scale_max=a.flux_scale_max)
     iterator = train_batch.make_one_shot_iterator()
     index, min_flux, max_flux, psf, dirty, skymodel = iterator.get_next()
 
@@ -142,7 +146,6 @@ def main():
     tf.summary.scalar("discriminator_loss", model.discrim_loss)
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
-    tf.summary.scalar("generator_loss_L0", model.gen_loss_L0)
     tf.summary.scalar("generator_loss_RES", model.gen_loss_RES)
 
     with tf.name_scope("parameter_count"):
@@ -183,7 +186,6 @@ def main():
                 fetches["discrim_loss"] = model.discrim_loss
                 fetches["gen_loss_GAN"] = model.gen_loss_GAN
                 fetches["gen_loss_L1"] = model.gen_loss_L1
-                fetches["gen_loss_L0"] = model.gen_loss_L0
                 fetches["gen_loss_RES"] = model.gen_loss_RES
 
             if should(a.summary_freq):
@@ -215,7 +217,6 @@ def main():
                 print("discrim_loss", results["discrim_loss"])
                 print("gen_loss_GAN", results["gen_loss_GAN"])
                 print("gen_loss_L1", results["gen_loss_L1"])
-                print("gen_loss_L0", results["gen_loss_L0"])
                 print("gen_loss_RES", results["gen_loss_RES"])
 
             if should(a.save_freq):

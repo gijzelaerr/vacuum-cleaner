@@ -13,7 +13,7 @@ import time
 from vacuum.io_ import load_data, save_images, deprocess, preprocess
 from vacuum.model import create_model
 from vacuum.util import shift
-from vacuum.datasets import generative_model
+from vacuum.util import gaussian_kernel
 
 
 parser = argparse.ArgumentParser()
@@ -46,10 +46,10 @@ parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN
 parser.add_argument("--res_weight", type=float, default=30.0, help="weight on residual term for generator gradient")
 
 parser.add_argument("--train_start", type=int, help="start index of train dataset subset", default=0)
-parser.add_argument("--train_end", type=int, help="end index of train dataset subset", default=1800)
+parser.add_argument("--train_end", type=int, help="end index of train dataset subset", default=3800)
 
-parser.add_argument("--validate_start", type=int, help="start index of train dataset subset", default=1900)
-parser.add_argument("--validate_end", type=int, help="end index of train dataset subset", default=2000)
+parser.add_argument("--validate_start", type=int, help="start index of train dataset subset", default=3900)
+parser.add_argument("--validate_end", type=int, help="end index of train dataset subset", default=4000)
 
 parser.add_argument('--disable_psf', action='store_true', help="disable the concatenation of the PSF as a channel")
 
@@ -265,7 +265,6 @@ def main():
                 print("discrim_loss", results["discrim_loss"])
                 print("gen_loss_GAN", results["gen_loss_GAN"])
                 print("gen_loss_L1", results["gen_loss_L1"])
-                # print("gen_loss_L0", results["gen_loss_L0"])
                 print("gen_loss_RES", results["gen_loss_RES"])
 
             if should(a.save_freq):
@@ -277,14 +276,12 @@ def main():
                 validation_fetches = {
                     "validation_gen_loss_GAN": model.gen_loss_GAN,
                     "validation_gen_loss_L1": model.gen_loss_L1,
-                    # "validation_gen_loss_L0": model.gen_loss_L0,
                     "summary": validation_summary_op,
                 }
 
                 validation_results = sess.run(validation_fetches, feed_dict={handle: validation_handle})
                 print("validation gen_loss_GAN", validation_results["validation_gen_loss_GAN"])
                 print("validation gen_loss_L1", validation_results["validation_gen_loss_L1"])
-                # print("validation gen_loss_L0", validation_results["validation_gen_loss_L0"])
                 validation_summary_writer.add_summary(validation_results["summary"], results["global_step"])
 
             if sv.should_stop():

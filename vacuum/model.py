@@ -146,9 +146,9 @@ def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_
         # predict_fake => 0
         discrim_loss = tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))
 
-    with tf.name_scope("discriminator_residuals"):
+    with tf.name_scope("generator_residuals"):
         deprocessed_output = deprocess(outputs, min_flux, max_flux)
-        shifted = shift(psf, y=-1, x=-1)
+        shifted = shift(psf, y=0, x=-1)
         filter_ = tf.expand_dims(tf.expand_dims(tf.squeeze(shifted), 2), 3)
         convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
         residuals = targets - convolved
@@ -160,7 +160,7 @@ def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_
         gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
         # gen_loss_L0 = tf.reduce_mean(tf.count_nonzero(outputs))
         gen_loss_RES = tf.reduce_mean(tf.abs(residuals - tf.reduce_mean(residuals)))
-        gen_loss = gen_loss_GAN * gan_weight + gen_loss_L1 * l1_weight + gen_loss_RES * res_weight  # + l0_weight * gen_loss_L0
+        gen_loss = gen_loss_L1 * l1_weight + gen_loss_RES * res_weight + gen_loss_GAN * gan_weight  # + l0_weight * gen_loss_L0
 
     with tf.name_scope("discriminator_train"):
         discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
@@ -176,7 +176,7 @@ def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_
             gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
-    update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_RES])  #, gen_loss_L0])
+    update_losses = ema.apply([gen_loss_L1, gen_loss_RES, discrim_loss, gen_loss_GAN])  #  gen_loss_L0])
 
     global_step = tf.train.get_or_create_global_step()
     incr_global_step = tf.assign(global_step, global_step + 1)

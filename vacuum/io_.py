@@ -148,10 +148,12 @@ def save_images(fetches, output_dir, step=None, subfolder="images", extention="p
 def preprocess(image, min_, max_):
     with tf.name_scope("preprocess"):
         return (image / (max_/2.0)[:, None, None, None]) - 1
+        #return (image / (max_ / 1.9)[:, None, None, None]) - 0.95
 
 
 def deprocess(image, min_, max_):
     with tf.name_scope("deprocess"):
         return (image + 1) * (max_/2.0)[:, None, None, None]
+        # return (image + 0.95) * (max_ / 1.9)[:, None, None, None]
 
 
