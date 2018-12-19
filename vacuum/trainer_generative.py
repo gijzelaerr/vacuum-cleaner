@@ -91,10 +91,10 @@ def main():
         scaled_dirty = preprocess(dirty, min_flux, max_flux)
         scaled_psf = (psf * 2) - 1
 
-    if a.disable_psf:
-        input_ = scaled_dirty
-    else:
-        input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
+    #if a.disable_psf:
+    input_ = scaled_dirty
+    #else:
+    #    input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
 
     # inputs and targets are [batch_size, height, width, channels]
     model = create_model(input_, scaled_skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
