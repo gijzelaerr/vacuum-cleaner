@@ -81,7 +81,7 @@ def generator(psfs, size=256, flux_scale_min=10, flux_scale_max=10):
 
 def generative_model(psf_glob, size=256, flip=True, batch_size=1, flux_scale_min=10, flux_scale_max=10):
     psfs = glob(psf_glob)
-    logger.info("Found {} PSFs with glob '{}'".format(len(psfs), psf_glob))
+    print("Found {} PSFs with glob '{}'".format(len(psfs), psf_glob))
 
     ds = tf.data.Dataset.from_generator(lambda: generator(psfs, size, flux_scale_min=flux_scale_min,
                                                           flux_scale_max=flux_scale_max),

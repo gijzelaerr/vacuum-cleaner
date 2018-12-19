@@ -80,7 +80,7 @@ def visual_scaling(img):
 def main():
     prepare()
 
-    train_batch = generative_model("/scratch/datasets/meerkat16_deep2like_morerange/*-bigpsf-psf.fits",
+    train_batch = generative_model(a.psf_glob,
                                    flux_scale_min=a.flux_scale_min,
                                    flux_scale_max=a.flux_scale_max)
     iterator = train_batch.make_one_shot_iterator()
