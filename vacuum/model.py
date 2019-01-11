@@ -120,25 +120,30 @@ def create_discriminator(discrim_inputs, discrim_targets, ndf):
     return layers[-1]
 
 
-def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_weight, res_weight, l0_weight, lr, beta1, psf,
-                 min_flux, max_flux):
-    # type: (tf.Tensor, tf.Tensor, float, bool, int, int, float, float, float, float, float, float, tf.Tensor, float, float) -> Model
+def create_model(dirty, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_weight, res_weight, l0_weight, lr, beta1, psf,
+                 min_flux, max_flux, disable_psf):
+    # type: (tf.Tensor, tf.Tensor, float, bool, int, int, float, float, float, float, float, float, tf.Tensor, float, float, bool) -> Model
+
+    if disable_psf:
+        input_ = dirty
+    else:
+        input_ = tf.concat([dirty, psf], axis=3)
 
     with tf.variable_scope("generator"):
         out_channels = 1
-        outputs = create_generator(inputs, out_channels, ngf, separable_conv)
+        outputs = create_generator(input_, out_channels, ngf, separable_conv)
 
     # create two copies of discriminator, one for real pairs and one for fake pairs
     # they share the same underlying variables
     with tf.name_scope("real_discriminator"):
         with tf.variable_scope("discriminator"):
             # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-            predict_real = create_discriminator(inputs, targets, ndf)
+            predict_real = create_discriminator(input_, targets, ndf)
 
     with tf.name_scope("fake_discriminator"):
         with tf.variable_scope("discriminator", reuse=True):
             # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-            predict_fake = create_discriminator(inputs, outputs, ndf)
+            predict_fake = create_discriminator(input_, outputs, ndf)
 
     with tf.name_scope("discriminator_loss"):
         # minimizing -tf.log will try to get inputs to 1
@@ -157,9 +162,13 @@ def create_model(inputs, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_
         # predict_fake => 1
         # abs(targets - outputs) => 0
         gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
-        gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
+        #gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
         # gen_loss_L0 = tf.reduce_mean(tf.count_nonzero(outputs))
-        gen_loss_RES = tf.reduce_mean(tf.abs(residuals - tf.reduce_mean(residuals)))
+        #gen_loss_RES = tf.reduce_mean(tf.abs(residuals - tf.reduce_mean(residuals)))
+        #gen_loss_RES = tf.tensordot(deprocessed_output, (-2 * inputs + convolved ), (1, 2))
+        deprocessed_dirty = deprocess(dirty, min_flux, max_flux)
+        gen_loss_RES = tf.reduce_sum(tf.tensordot(deprocessed_output, (-2 * deprocessed_dirty + convolved ), (1, 2)))
+        gen_loss_L1 = tf.reduce_sum(deprocessed_output)
         gen_loss = gen_loss_L1 * l1_weight + gen_loss_RES * res_weight + gen_loss_GAN * gan_weight  # + l0_weight * gen_loss_L0
 
     with tf.name_scope("discriminator_train"):

@@ -36,10 +36,10 @@ parser.add_argument("--flip", dest="flip", action="store_true", help="flip image
 parser.set_defaults(flip=True)
 parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate for adam")
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
-parser.add_argument("--l1_weight", type=float, default=200.0, help="weight on L1 term for generator gradient")
-parser.add_argument("--l0_weight", type=float, default=1, help="weight on L0 term for generator gradient")
-parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
-parser.add_argument("--res_weight", type=float, default=30.0, help="weight on residual term for generator gradient")
+parser.add_argument("--l1_weight", type=float, default=1, help="weight on L1 term for generator gradient")
+parser.add_argument("--l0_weight", type=float, default=0, help="weight on L0 term for generator gradient")
+parser.add_argument("--gan_weight", type=float, default=100, help="weight on GAN term for generator gradient")
+parser.add_argument("--res_weight", type=float, default=10, help="weight on residual term for generator gradient")
 
 parser.add_argument("--train_start", type=int, help="start index of train dataset subset", default=0)
 parser.add_argument("--train_end", type=int, help="end index of train dataset subset", default=1800)
@@ -91,15 +91,10 @@ def main():
         scaled_dirty = preprocess(dirty, min_flux, max_flux)
         scaled_psf = (psf * 2) - 1
 
-    if a.disable_psf:
-        input_ = scaled_dirty
-    else:
-        input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
-
     # inputs and targets are [batch_size, height, width, channels]
-    model = create_model(input_, scaled_skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
+    model = create_model(scaled_dirty, scaled_skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
                          l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf, psf=psf, min_flux=min_flux,
-                         max_flux=max_flux, res_weight=a.res_weight, l0_weight=a.l0_weight)
+                         max_flux=max_flux, res_weight=a.res_weight, l0_weight=a.l0_weight, disable_psf=a.disable_psf)
 
     deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
 
@@ -160,7 +155,9 @@ def main():
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=saver, summary_writer=None,
                              summary_op=None)
 
-    with sv.managed_session() as sess:
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.6)
+
+    with sv.managed_session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         print("parameter_count =", sess.run(parameter_count))
 
         start = time.time()
