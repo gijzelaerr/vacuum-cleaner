@@ -36,10 +36,10 @@ parser.add_argument("--flip", dest="flip", action="store_true", help="flip image
 parser.set_defaults(flip=True)
 parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate for adam")
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
-parser.add_argument("--l1_weight", type=float, default=1, help="weight on L1 term for generator gradient")
+parser.add_argument("--l1_weight", type=float, default=0, help="weight on L1 term for generator gradient")
 parser.add_argument("--l0_weight", type=float, default=0, help="weight on L0 term for generator gradient")
-parser.add_argument("--gan_weight", type=float, default=100, help="weight on GAN term for generator gradient")
-parser.add_argument("--res_weight", type=float, default=10, help="weight on residual term for generator gradient")
+parser.add_argument("--gan_weight", type=float, default=10, help="weight on GAN term for generator gradient")
+parser.add_argument("--res_weight", type=float, default=1, help="weight on residual term for generator gradient")
 
 parser.add_argument("--train_start", type=int, help="start index of train dataset subset", default=0)
 parser.add_argument("--train_end", type=int, help="end index of train dataset subset", default=1800)

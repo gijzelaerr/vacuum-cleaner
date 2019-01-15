@@ -156,7 +156,7 @@ def create_model(dirty, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_w
         shifted = shift(psf, y=0, x=-1)
         filter_ = tf.expand_dims(tf.expand_dims(tf.squeeze(shifted), 2), 3)
         convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
-        residuals = targets - convolved
+        #residuals = targets - convolved
 
     with tf.name_scope("generator_loss"):
         # predict_fake => 1
@@ -167,7 +167,10 @@ def create_model(dirty, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_w
         #gen_loss_RES = tf.reduce_mean(tf.abs(residuals - tf.reduce_mean(residuals)))
         #gen_loss_RES = tf.tensordot(deprocessed_output, (-2 * inputs + convolved ), (1, 2))
         deprocessed_dirty = deprocess(dirty, min_flux, max_flux)
-        gen_loss_RES = tf.reduce_sum(tf.tensordot(deprocessed_output, (-2 * deprocessed_dirty + convolved ), (1, 2)))
+
+        # likelihood
+        gen_loss_RES = tf.reduce_sum(tf.multiply(deprocessed_output, convolved - 2 * deprocessed_dirty))
+
         gen_loss_L1 = tf.reduce_sum(deprocessed_output)
         gen_loss = gen_loss_L1 * l1_weight + gen_loss_RES * res_weight + gen_loss_GAN * gan_weight  # + l0_weight * gen_loss_L0
 
