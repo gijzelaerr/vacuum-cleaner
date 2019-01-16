@@ -134,24 +134,33 @@ def init(checkpoint):
 
 def clean(model, dirty_data, psf_data):
 
+    if psf_data.shape != dirty_data.shape:
+        logger.warning("PSF shape doesn't match dirty shape!")
+        center_pixel = psf_data.shape[0] // 2
+        distance = dirty_data.shape[0] // 2
+        if psf_data.shape[0] % 2:
+            psf_data = psf_data[center_pixel - distance:center_pixel + distance + 1,
+                                center_pixel - distance:center_pixel + distance + 1]
+        else:
+            psf_data = psf_data[center_pixel - distance:center_pixel + distance,
+                                center_pixel - distance:center_pixel + distance]
+
     assert(psf_data.shape == dirty_data.shape)
 
-    # todo: check if we really need this
-    dirty_data = dirty_data[:, :, np.newaxis]
+    # todo: make sure we get the center pixel right!
 
     # we need a smaller PSF to give as a channel to the dirty tiles
-    psf_data = psf_data / psf_data.max()
-    psf_small = psf_data[psf_data.shape[0] // 2 - SIZE // 2 + 1:psf_data.shape[0] // 2 + SIZE // 2 + 1,
-                psf_data.shape[1] // 2 - SIZE // 2 + 1:psf_data.shape[1] // 2 + SIZE // 2 + 1]
+    center_pixel = psf_data.shape[0] // 2
+    distance = SIZE // 2
+    if SIZE % 2:
+        psf_small = psf_data[center_pixel - distance:center_pixel + distance + 1,
+                            center_pixel - distance:center_pixel + distance + 1]
+    else:
+        psf_small = psf_data[center_pixel - distance:center_pixel + distance,
+                             center_pixel - distance:center_pixel + distance]
 
-    logger.debug(psf_small.shape)
-    logger.debug((psf_data.shape[0] // 2 - SIZE // 2 + 1, psf_data.shape[0] // 2 + SIZE // 2 + 1,
-           psf_data.shape[1] // 2 - SIZE // 2 + 1, psf_data.shape[1] // 2 + SIZE // 2 + 1))
-
-    psf_small = psf_small[:, :, np.newaxis]
-
-    n_r = int(dirty_data.shape[0] / stride)
-    n_c = int(dirty_data.shape[1] / stride)
+    n_r = int(dirty_data.shape[0] / stride) -1
+    n_c = int(dirty_data.shape[1] / stride) -1
 
     # run all data through the network
     queue_ = IterableQueue()
@@ -160,7 +169,8 @@ def clean(model, dirty_data, psf_data):
         assert (dirty.shape == psf_small.shape)
         scaled_dirty = (dirty / (max_flux/2.0)) - 1
         scaled_psf = (psf_small * 2) - 1
-        input_numpy = np.expand_dims(np.concatenate((scaled_dirty, scaled_psf), axis=2), axis=0)
+        input_numpy = np.expand_dims(np.concatenate((scaled_dirty[:, :, np.newaxis],
+                                                     scaled_psf[:, :, np.newaxis]), axis=2), axis=0)
 
         n = model.session.run(model.output, feed_dict={model.input: input_numpy, model.min_flux: [min_flux],
                                                        model.max_flux: [max_flux]})
