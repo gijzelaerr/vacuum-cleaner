@@ -94,7 +94,7 @@ def main():
     # inputs and targets are [batch_size, height, width, channels]
     model = create_model(scaled_dirty, scaled_skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
                          l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf, psf=psf, min_flux=min_flux,
-                         max_flux=max_flux, res_weight=a.res_weight, l0_weight=a.l0_weight, disable_psf=a.disable_psf)
+                         max_flux=max_flux, res_weight=a.res_weight, disable_psf=a.disable_psf)
 
     deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
 
