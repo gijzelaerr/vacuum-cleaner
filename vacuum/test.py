@@ -10,24 +10,10 @@ from vacuum.io_ import load_data, fits_encode, save_images, deprocess, preproces
 from vacuum.model import create_generator
 from vacuum.util import shift
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--input_dir", required=True, help="path to folder containing images")
-parser.add_argument("--output_dir", required=True, help="where to put output files")
-parser.add_argument("--checkpoint", required=True, help="directory with checkpoint to use for testing")
-parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
-parser.add_argument("--max_epochs", type=int, help="number of training epochs")
-parser.add_argument("--separable_conv", action="store_true", help="use separable convolutions in the generator")
-parser.add_argument("--batch_size", type=int, default=1, help="number of images in batch")
-parser.add_argument("--test_start", type=int, help="start index of test dataset subset", default=0)
-parser.add_argument("--test_end", type=int, help="end index of test dataset subset", default=999)
-parser.add_argument('--disable_psf', action='store_true', help="disable the concatenation of the PSF as a channel")
-
-a = parser.parse_args()
-
 CROP_SIZE = 256
 
 
-def prepare():
+def prepare(a):
     if not os.path.exists(a.output_dir):
         os.makedirs(a.output_dir)
 
@@ -44,6 +30,7 @@ def prepare():
 
     with open(os.path.join(a.output_dir, "options.json"), "w") as f:
         f.write(json.dumps(vars(a), sort_keys=True, indent=4))
+
 
 
 def test(
@@ -96,12 +83,8 @@ def test(
         if write_input:
             work["inputs"] = tf.map_fn(fits_encode, dirty, dtype=tf.string, name="input_fits")
 
-    with tf.name_scope("parameter_count"):
-        parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
-
-    sv = tf.train.Supervisor()
+    sv = tf.train.Supervisor(logdir=None)
     with sv.managed_session() as sess:
-        print("parameter_count =", sess.run(parameter_count))
         sv.saver.restore(sess, checkpoint)
 
         for step in range(steps_per_epoch):
@@ -111,11 +94,29 @@ def test(
                 print("wrote " + f['name'])
 
 
-if __name__ == '__main__':
-    prepare()
-    print("loading model from checkpoint")
-    checkpoint = tf.train.latest_checkpoint(a.checkpoint)
-    print("loaded {}".format(checkpoint))
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input_dir", required=True, help="path to folder containing images")
+    parser.add_argument("--output_dir", required=True, help="where to put output files")
+    parser.add_argument("--checkpoint", required=True, help="directory with checkpoint to use for testing")
+    parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
+    parser.add_argument("--max_epochs", type=int, help="number of training epochs")
+    parser.add_argument("--separable_conv", action="store_true", help="use separable convolutions in the generator")
+    parser.add_argument("--batch_size", type=int, default=1, help="number of images in batch")
+    parser.add_argument("--test_start", type=int, help="start index of test dataset subset", default=0)
+    parser.add_argument("--test_end", type=int, help="end index of test dataset subset", default=999)
+    parser.add_argument('--disable_psf', action='store_true', help="disable the concatenation of the PSF as a channel")
+    parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
 
-    test(a.input_dir, a.output_dir, checkpoint, a.batch_size, a.test_start,
+    a = parser.parse_args()
+    #prepare(a)
+    #print("loading model from checkpoint")
+    #checkpoint = tf.train.latest_checkpoint(a.checkpoint)
+    #print("loaded {}".format(checkpoint))
+
+    test(a.input_dir, a.output_dir, a.checkpoint, a.batch_size, a.test_start,
           a.test_end, a.disable_psf, a.ngf, a.separable_conv)
+
+
+if __name__ == '__main__':
+    main()
