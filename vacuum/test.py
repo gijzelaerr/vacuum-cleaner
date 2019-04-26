@@ -93,6 +93,39 @@ def test(
             for f in filesets:
                 print("wrote " + f['name'])
 
+def test_lik_loss(ID, PSF, IM):
+    """
+    Compare the likelihood loss computed by tensorflow to that computed using numpy
+    loss = I.H.dot(PSF * I - 2 ID)
+    Assume all inputs are the same shape i.e. npix x npix
+    :return: 
+    """
+    npix, _ = IM.shape
+    # convolve image with PSF
+    ind = slice(npix, -npix)  # for unpadding
+    import numpy as np
+    Ipad = np.pad(IM, npix, mode='constant')
+    PSFpad = np.pad(PSF, npix, mode='constant')
+    Fs = np.fft.fftshift
+    iFs = np.fft.ifftshift
+    from scipy import fftpack as FFT  # numpy's fft is inaccurate
+    Ihat = FFT.fft2(iFs(Ipad))
+    PSFhat = FFT.fft2(iFs(PSFpad))
+    PSFconvI = Fs(FFT.ifft2(Ihat * PSFhat))[ind, ind].real
+    # flatten inputs for taking dot products
+    IM = IM.flatten()
+    ID = ID.flatten()
+    PSFconvI = PSFconvI.flatten()
+    loss_np = IM.T.dot(PSFconvI - 2*ID)
+
+    print("numpy loss = ", loss_np)
+
+    # get tensorflow equivalent
+    loss_tf = tf.reduce_sum(tf.multiply(IM, PSFconvI - 2 * ID)).compute()
+
+    print("tensorflow loss = ", loss_tf)
+
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -119,4 +152,16 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    # load in ID, PSF
+    from astropy.io import fits
+    ID = fits.getdata('/home/landman/Projects/Data/MS_dir/ddfacet_test_data/SARA_TestSuite/msaveragedeconv-dirty.fits').squeeze()
+    PSF = fits.getdata('/home/landman/Projects/Data/MS_dir/ddfacet_test_data/SARA_TestSuite/msaveragedeconv-psf.fits').squeeze()
+
+    # model is arbitrary
+    npix, _ = ID.shape
+    import numpy as np
+    IM = np.zeros((npix, npix), dtype=np.float64)
+    IM[np.random.randint(0, npix, 5), np.random.randint(0, npix, 5)] = np.random.random(5)
+
+    test_lik_loss(ID, PSF, IM)
