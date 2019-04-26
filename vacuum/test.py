@@ -102,38 +102,27 @@ def test_lik_loss(ID, PSF, IM):
     """
     npix, _ = IM.shape
     # convolve image with PSF
-    ind = slice(npix, -npix)  # for unpadding
     import numpy as np
-    Ipad = np.pad(IM, npix, mode='constant')
-    PSFpad = np.pad(PSF, npix, mode='constant')
-    Fs = np.fft.fftshift
-    iFs = np.fft.ifftshift
-    from scipy import fftpack as FFT  # numpy's fft is inaccurate
-    Ihat = FFT.fft2(iFs(Ipad))
-    PSFhat = FFT.fft2(iFs(PSFpad))
-    PSFconvI = Fs(FFT.ifft2(Ihat * PSFhat))[ind, ind].real
-    # flatten inputs for taking dot products
+    IMhat = np.fft.rfft2(IM)
+    PSFhat = np.fft.rfft2(PSF)
+    PSFconvI = np.fft.irfft2(IMhat * PSFhat)
+    PSFconvIflat = PSFconvI.flatten()
     IMflat = IM.flatten()
     IDflat = ID.flatten()
-    PSFconvIflat = PSFconvI.flatten()
-    loss_np = IMflat.T.dot(PSFconvIflat - 2*IDflat)
+    loss_np2 = IMflat.T.dot(PSFconvIflat - 2 * IDflat)
 
-    print("numpy loss = ", loss_np)
+    print("numpy loss = ", loss_np2)
+
 
     # get tensorflow equivalent
     tf.enable_eager_execution()
-    IM2 = tf.convert_to_tensor(IM[None, :, :, None], dtype=tf.float64)
-    ID2 = tf.convert_to_tensor(ID, dtype=tf.float64)
-    from vacuum.util import shift
-    PSF2 = tf.convert_to_tensor(PSF[:, :, None, None], dtype=tf.float64)  # does the same as expand dims
-    # PSF3 = shift(PSF2, y=0, x=-1)
-    PSF4 = tf.expand_dims(tf.expand_dims(tf.squeeze(PSF2), 2), 3)
-    print(PSF2.shape, PSF4.shape)
-    PSFconvI2 = tf.nn.conv2d(IM2, PSF4, strides=[1,1,1,1], padding='SAME', use_cudnn_on_gpu=False)
-    # compare to
-    # PSFconvI2 = tf.nn.conv2d(IM2, PSF4, strides=[1, 1, 1, 1], padding='VALID', use_cudnn_on_gpu=False)
-    print(PSFconvI2.shape)
-    loss_tf = tf.reduce_sum(tf.multiply(tf.squeeze(IM2), tf.squeeze(PSFconvI2) - 2 * ID2))
+    IDtf = tf.convert_to_tensor(ID, dtype=tf.float32)
+    PSFtf = tf.convert_to_tensor(PSF, dtype=tf.float32)
+    IMtf = tf.convert_to_tensor(IM, dtype=tf.float32)
+    IMhattf = tf.signal.rfft2d(IMtf)
+    PSFhattf = tf.signal.rfft2d(PSFtf)
+    PSFconvItf = tf.signal.irfft2d(tf.multiply(IMhattf,PSFhattf))
+    loss_tf = tf.reduce_sum(tf.multiply(tf.squeeze(IMtf), tf.squeeze(PSFconvItf) - 2 * IDtf))
 
     print("tensorflow loss = ", loss_tf)
 
@@ -165,15 +154,19 @@ def main():
 
 if __name__ == '__main__':
     # main()
+    import numpy as np
     # load in ID, PSF
     from astropy.io import fits
     ID = fits.getdata('/home/landman/Projects/Data/MS_dir/ddfacet_test_data/SARA_TestSuite/msaveragedeconv-dirty.fits').squeeze()
     PSF = fits.getdata('/home/landman/Projects/Data/MS_dir/ddfacet_test_data/SARA_TestSuite/msaveragedeconv-psf.fits').squeeze()
 
+    ID = np.asarray(ID, dtype=np.float32)
+    PSF = np.asarray(PSF, dtype=np.float32)
+
     # model is arbitrary
     npix, _ = ID.shape
-    import numpy as np
-    IM = np.zeros((npix, npix), dtype=np.float64)
+
+    IM = np.zeros((npix, npix), dtype=np.float32)
     IM[np.random.randint(0, npix, 5), np.random.randint(0, npix, 5)] = np.random.random(5)
 
     test_lik_loss(ID, PSF, IM)
