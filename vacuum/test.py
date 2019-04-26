@@ -113,15 +113,27 @@ def test_lik_loss(ID, PSF, IM):
     PSFhat = FFT.fft2(iFs(PSFpad))
     PSFconvI = Fs(FFT.ifft2(Ihat * PSFhat))[ind, ind].real
     # flatten inputs for taking dot products
-    IM = IM.flatten()
-    ID = ID.flatten()
-    PSFconvI = PSFconvI.flatten()
-    loss_np = IM.T.dot(PSFconvI - 2*ID)
+    IMflat = IM.flatten()
+    IDflat = ID.flatten()
+    PSFconvIflat = PSFconvI.flatten()
+    loss_np = IMflat.T.dot(PSFconvIflat - 2*IDflat)
 
     print("numpy loss = ", loss_np)
 
     # get tensorflow equivalent
-    loss_tf = tf.reduce_sum(tf.multiply(IM, PSFconvI - 2 * ID)).compute()
+    tf.enable_eager_execution()
+    IM2 = tf.convert_to_tensor(IM[None, :, :, None], dtype=tf.float64)
+    ID2 = tf.convert_to_tensor(ID, dtype=tf.float64)
+    from vacuum.util import shift
+    PSF2 = tf.convert_to_tensor(PSF[:, :, None, None], dtype=tf.float64)  # does the same as expand dims
+    # PSF3 = shift(PSF2, y=0, x=-1)
+    PSF4 = tf.expand_dims(tf.expand_dims(tf.squeeze(PSF2), 2), 3)
+    print(PSF2.shape, PSF4.shape)
+    PSFconvI2 = tf.nn.conv2d(IM2, PSF4, strides=[1,1,1,1], padding='SAME', use_cudnn_on_gpu=False)
+    # compare to
+    # PSFconvI2 = tf.nn.conv2d(IM2, PSF4, strides=[1, 1, 1, 1], padding='VALID', use_cudnn_on_gpu=False)
+    print(PSFconvI2.shape)
+    loss_tf = tf.reduce_sum(tf.multiply(tf.squeeze(IM2), tf.squeeze(PSFconvI2) - 2 * ID2))
 
     print("tensorflow loss = ", loss_tf)
 
