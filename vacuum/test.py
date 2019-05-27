@@ -93,6 +93,31 @@ def test(
             for f in filesets:
                 print("wrote " + f['name'])
 
+def mytf_convolve(arr1, arr2):
+    """
+    Custom fftconvolve function (in 2D) using tensorflow
+    """
+    from tensorflow.python import roll as _roll
+    from tensorflow.python.framework import ops
+    def myFs(img):
+        # note taken from https://gist.github.com/Gurpreetsingh9465/f76cc9e53107c29fd76515d64c294d3f
+        x = ops.convert_to_tensor_v2(img)
+        axes = tuple(range(x.ndim))
+        shift = [dim // 2 for dim in x.shape]
+        return _roll(x, shift, axes)
+    def myiFs(img):
+        # note taken from https://gist.github.com/Gurpreetsingh9465/f76cc9e53107c29fd76515d64c294d3f
+        x = ops.convert_to_tensor_v2(img)
+        axes = tuple(range(x.ndim))
+        shift = [-(int(dim) // 2) for dim in x.shape]
+        return _roll(x, shift, axes)
+
+    arr1 = tf.convert_to_tensor(arr1, dtype=tf.float32)
+    arr2= tf.convert_to_tensor(arr2, dtype=tf.float32)
+    arr1hat = tf.signal.rfft2d(myiFs(arr1))
+    arr2hat = tf.signal.rfft2d(myiFs(arr2))
+    return myFs(tf.signal.irfft2d(tf.multiply(arr1hat, arr2hat)))
+
 def test_lik_loss(ID, PSF, IM):
     """
     Compare the likelihood loss computed by tensorflow to that computed using numpy
@@ -100,12 +125,33 @@ def test_lik_loss(ID, PSF, IM):
     Assume all inputs are the same shape i.e. npix x npix
     :return: 
     """
+    from tensorflow.python import roll as _roll
+    from tensorflow.python.framework import ops
+    def myFs(img):
+        # note taken from https://gist.github.com/Gurpreetsingh9465/f76cc9e53107c29fd76515d64c294d3f
+        x = ops.convert_to_tensor_v2(img)
+        axes = tuple(range(x.ndim))
+        shift = [dim // 2 for dim in x.shape]
+        return _roll(x, shift, axes)
+    def myiFs(img):
+        # note taken from https://gist.github.com/Gurpreetsingh9465/f76cc9e53107c29fd76515d64c294d3f
+        x = ops.convert_to_tensor_v2(img)
+        axes = tuple(range(x.ndim))
+        shift = [-(int(dim) // 2) for dim in x.shape]
+        return _roll(x, shift, axes)
+
     npix, _ = IM.shape
     # convolve image with PSF
     import numpy as np
-    IMhat = np.fft.rfft2(IM)
-    PSFhat = np.fft.rfft2(PSF)
-    PSFconvI = np.fft.irfft2(IMhat * PSFhat)
+    Fs = np.fft.fftshift
+    iFs = np.fft.ifftshift
+    IMhat = np.fft.rfft2(iFs(IM))
+    PSFhat = np.fft.rfft2(iFs(PSF))
+    PSFconvI = Fs(np.fft.irfft2(IMhat * PSFhat))
+    import matplotlib.pyplot as plt
+    plt.figure('numpy')
+    plt.imshow(PSFconvI)
+    plt.colorbar()
     PSFconvIflat = PSFconvI.flatten()
     IMflat = IM.flatten()
     IDflat = ID.flatten()
@@ -114,14 +160,15 @@ def test_lik_loss(ID, PSF, IM):
     print("numpy loss = ", loss_np2)
 
 
-    # get tensorflow equivalent
+    # get tensorflow equivalent (Note tf fft's only seem to give correct answer for float32)
     tf.enable_eager_execution()
     IDtf = tf.convert_to_tensor(ID, dtype=tf.float32)
-    PSFtf = tf.convert_to_tensor(PSF, dtype=tf.float32)
     IMtf = tf.convert_to_tensor(IM, dtype=tf.float32)
-    IMhattf = tf.signal.rfft2d(IMtf)
-    PSFhattf = tf.signal.rfft2d(PSFtf)
-    PSFconvItf = tf.signal.irfft2d(tf.multiply(IMhattf,PSFhattf))
+    PSFconvItf = mytf_convolve(IM, PSF)
+    plt.figure('tf')
+    plt.imshow(PSFconvItf)
+    plt.colorbar()
+    plt.show()
     loss_tf = tf.reduce_sum(tf.multiply(tf.squeeze(IMtf), tf.squeeze(PSFconvItf) - 2 * IDtf))
 
     print("tensorflow loss = ", loss_tf)
