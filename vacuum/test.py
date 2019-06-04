@@ -95,7 +95,9 @@ def test(
 
 def mytf_convolve(arr1, arr2):
     """
-    Custom fftconvolve function (in 2D) using tensorflow
+    Custom fftconvolve function (in 2D) using tensorflow.
+    If arrays have different shape then arr1 has to be 
+    the larger of the two
     """
     from tensorflow.python import roll as _roll
     from tensorflow.python.framework import ops
@@ -112,11 +114,20 @@ def mytf_convolve(arr1, arr2):
         shift = [-(int(dim) // 2) for dim in x.shape]
         return _roll(x, shift, axes)
 
+    arr1x, arr1y = arr1.shape
+    arr2x, arr2y = arr2.shape
+    padx = (arr1x - arr2x)//2
+    pady = (arr1y - arr2y)//2
+    
+    paddings = tf.constant([[padx, padx], [pady, pady]], dtype=tf.int32)
+    arr2 = tf.pad(arr2, paddings, "CONSTANT")
+
     arr1 = tf.convert_to_tensor(arr1, dtype=tf.float32)
     arr2= tf.convert_to_tensor(arr2, dtype=tf.float32)
     arr1hat = tf.signal.rfft2d(myiFs(arr1))
     arr2hat = tf.signal.rfft2d(myiFs(arr2))
-    return myFs(tf.signal.irfft2d(tf.multiply(arr1hat, arr2hat)))
+    result = myFs(tf.signal.irfft2d(tf.multiply(arr1hat, arr2hat)))
+    return result[padx:-padx, pady:-pady]
 
 def test_lik_loss(ID, PSF, IM):
     """
@@ -141,13 +152,19 @@ def test_lik_loss(ID, PSF, IM):
         return _roll(x, shift, axes)
 
     npix, _ = IM.shape
+    npix_psf, _ = PSF.shape
     # convolve image with PSF
     import numpy as np
     Fs = np.fft.fftshift
     iFs = np.fft.ifftshift
-    IMhat = np.fft.rfft2(iFs(IM))
+
+    npad = (npix_psf - npix)//2
+    I_unpad = slice(npad, -npad)
+    IMpad = np.pad(IM, npad, mode='constant')
+
+    IMhat = np.fft.rfft2(iFs(IMpad))
     PSFhat = np.fft.rfft2(iFs(PSF))
-    PSFconvI = Fs(np.fft.irfft2(IMhat * PSFhat))
+    PSFconvI = Fs(np.fft.irfft2(IMhat * PSFhat))[I_unpad, I_unpad]
     import matplotlib.pyplot as plt
     plt.figure('numpy')
     plt.imshow(PSFconvI)
@@ -159,12 +176,14 @@ def test_lik_loss(ID, PSF, IM):
 
     print("numpy loss = ", loss_np2)
 
+    plt.show()
+
 
     # get tensorflow equivalent (Note tf fft's only seem to give correct answer for float32)
     tf.enable_eager_execution()
     IDtf = tf.convert_to_tensor(ID, dtype=tf.float32)
     IMtf = tf.convert_to_tensor(IM, dtype=tf.float32)
-    PSFconvItf = mytf_convolve(IM, PSF)
+    PSFconvItf = mytf_convolve(PSF, IM)
     plt.figure('tf')
     plt.imshow(PSFconvItf)
     plt.colorbar()
@@ -204,8 +223,8 @@ if __name__ == '__main__':
     import numpy as np
     # load in ID, PSF
     from astropy.io import fits
-    ID = fits.getdata('/home/landman/Projects/Data/MS_dir/ddfacet_test_data/SARA_TestSuite/msaveragedeconv-dirty.fits').squeeze()
-    PSF = fits.getdata('/home/landman/Projects/Data/MS_dir/ddfacet_test_data/SARA_TestSuite/msaveragedeconv-psf.fits').squeeze()
+    ID = fits.getdata('/home/landman/Projects/Data/MS_dir/ddfacet_test_data/WSCMS_MSMF_TestSuite/natural_512-dirty.fits').squeeze()
+    PSF = fits.getdata('/home/landman/Projects/Data/MS_dir/ddfacet_test_data/WSCMS_MSMF_TestSuite/natural_512-psf.fits').squeeze()
 
     ID = np.asarray(ID, dtype=np.float32)
     PSF = np.asarray(PSF, dtype=np.float32)
