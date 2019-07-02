@@ -10,7 +10,7 @@ from vacuum.io_ import deprocess
 
 Model = namedtuple("Model",
                    "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, "
-                   "gen_loss_GAN, gen_loss_L1, gen_loss_RES, gen_grads_and_vars, train")  # gen_loss_L0
+                   "gen_loss_L1, gen_grads_and_vars, train, gen_loss_GAN")  # gen_loss_L0 gen_loss_RES gen_loss_GAN
 
 
 def create_generator(generator_inputs, generator_outputs_channels, ngf, separable_conv):
@@ -151,11 +151,11 @@ def create_model(dirty, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_w
         # predict_fake => 0
         discrim_loss = tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))
 
-    with tf.name_scope("generator_residuals"):
-        deprocessed_output = deprocess(outputs, min_flux, max_flux)
-        shifted = shift(psf, y=0, x=-1)
-        filter_ = tf.expand_dims(tf.expand_dims(tf.squeeze(shifted), 2), 3)
-        convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
+    #with tf.name_scope("generator_residuals"):
+        #deprocessed_output = deprocess(outputs, min_flux, max_flux)
+        #shifted = shift(psf, y=0, x=-1)
+        #filter_ = tf.expand_dims(tf.expand_dims(tf.squeeze(shifted), 2), 3)
+        #convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
         # residuals = targets - convolved
 
     with tf.name_scope("generator_loss"):
@@ -163,13 +163,12 @@ def create_model(dirty, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_w
         # abs(targets - outputs) => 0
         gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
         gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
-        deprocessed_dirty = deprocess(dirty, min_flux, max_flux)
+        #deprocessed_dirty = deprocess(dirty, min_flux, max_flux)
 
         # likelihood
-        gen_loss_RES = tf.reduce_sum(tf.multiply(deprocessed_output, convolved - 2 * deprocessed_dirty))
+        #gen_loss_RES = tf.reduce_sum(tf.multiply(deprocessed_output, convolved - 2 * deprocessed_dirty))
 
-        #gen_loss_L1 = tf.reduce_sum(deprocessed_output)
-        gen_loss = gen_loss_L1 * l1_weight + gen_loss_RES * res_weight + gen_loss_GAN * gan_weight
+        gen_loss = gen_loss_L1 * l1_weight + gen_loss_GAN * gan_weight # + gen_loss_RES * res_weight
 
     with tf.name_scope("discriminator_train"):
         discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
@@ -185,7 +184,7 @@ def create_model(dirty, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_w
             gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
-    update_losses = ema.apply([gen_loss_L1, gen_loss_RES, discrim_loss, gen_loss_GAN])  #  gen_loss_L0])
+    update_losses = ema.apply([gen_loss_L1, discrim_loss, gen_loss_GAN])  #  gen_loss_L0, gen_loss_RES])
 
     global_step = tf.train.get_or_create_global_step()
     incr_global_step = tf.assign(global_step, global_step + 1)
@@ -197,7 +196,7 @@ def create_model(dirty, targets, EPS, separable_conv, ngf, ndf, gan_weight, l1_w
         discrim_grads_and_vars=discrim_grads_and_vars,
         gen_loss_GAN=ema.average(gen_loss_GAN),
         gen_loss_L1=ema.average(gen_loss_L1),
-        gen_loss_RES=ema.average(gen_loss_RES),
+        #gen_loss_RES=ema.average(gen_loss_RES),
         # gen_loss_L0=ema.average(gen_loss_L0),
         gen_grads_and_vars=gen_grads_and_vars,
         outputs=outputs,

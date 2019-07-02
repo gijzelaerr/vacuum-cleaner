@@ -38,7 +38,7 @@ parser.add_argument("--ndf", type=int, default=64, help="number of discriminator
 parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
 parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
 parser.set_defaults(flip=True)
-parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate for adam")
+parser.add_argument("--lr", type=float, default=0.0001, help="initial learning rate for adam")
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
@@ -109,13 +109,13 @@ def main():
                          l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf, psf=psf, min_flux=min_flux,
                          max_flux=max_flux, res_weight=a.res_weight)
 
-    deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
+    #deprocessed_output = deprocess(model.outputs, min_flux, max_flux)
 
-    with tf.name_scope("calculate_residuals"):
-        shifted = shift(psf, y=-1, x=-1)
-        filter_ = tf.expand_dims(tf.expand_dims(tf.squeeze(shifted), 2), 3)
-        convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
-        residuals = dirty - convolved
+    #with tf.name_scope("calculate_residuals"):
+        #shifted = shift(psf, y=-1, x=-1)
+        #filter_ = tf.expand_dims(tf.expand_dims(tf.squeeze(shifted), 2), 3)
+        #convolved = tf.nn.conv2d(deprocessed_output, filter_, [1, 1, 1, 1], "SAME")
+        #residuals = dirty - convolved
 
     # reverse any processing on images so they can be written to disk or displayed to user
     with tf.name_scope("convert_images"):
@@ -123,7 +123,7 @@ def main():
         converted_targets = tf.image.convert_image_dtype(visual_scaling(scaled_skymodel), dtype=tf.uint8, saturate=True)
         converted_outputs = tf.image.convert_image_dtype(visual_scaling(model.outputs), dtype=tf.uint8, saturate=True)
         converted_psfs = tf.image.convert_image_dtype(visual_scaling(scaled_psf), dtype=tf.uint8, saturate=True)
-        converted_residuals = tf.image.convert_image_dtype(visual_scaling(residuals), dtype=tf.uint8, saturate=True)
+        #converted_residuals = tf.image.convert_image_dtype(visual_scaling(residuals), dtype=tf.uint8, saturate=True)
 
     with tf.name_scope("encode_images"):
         display_fetches = {
@@ -132,7 +132,7 @@ def main():
             "targets": tf.map_fn(tf.image.encode_png, converted_targets, dtype=tf.string, name="target_pngs"),
             "outputs": tf.map_fn(tf.image.encode_png, converted_outputs, dtype=tf.string, name="output_pngs"),
             "psfs": tf.map_fn(tf.image.encode_png, converted_psfs, dtype=tf.string, name="psf_pngs"),
-            "residuals": tf.map_fn(tf.image.encode_png, converted_residuals, dtype=tf.string, name="residual_pngs"),
+#            "residuals": tf.map_fn(tf.image.encode_png, converted_residuals, dtype=tf.string, name="residual_pngs"),
         }
 
     # summaries
@@ -140,7 +140,7 @@ def main():
         tf.summary.image("inputs", converted_inputs)
         tf.summary.image("outputs", converted_outputs)
         tf.summary.image("targets", converted_targets)
-        tf.summary.image("residuals", converted_residuals)
+ #       tf.summary.image("residuals", converted_residuals)
 
     with tf.name_scope("psfs_summary"):
         tf.summary.image("psfss", converted_psfs)
@@ -154,7 +154,7 @@ def main():
     tf.summary.scalar("discriminator_loss", model.discrim_loss)
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
-    tf.summary.scalar("generator_loss_RES", model.gen_loss_RES)
+    #tf.summary.scalar("generator_loss_RES", model.gen_loss_RES)
 
     if a.validation_freq:
         tf.summary.scalar("Validation generator_loss_GAN", model.gen_loss_GAN)
@@ -222,7 +222,7 @@ def main():
                 fetches["gen_loss_GAN"] = model.gen_loss_GAN
                 fetches["gen_loss_L1"] = model.gen_loss_L1
                 #fetches["gen_loss_L0"] = model.gen_loss_L0
-                fetches["gen_loss_RES"] = model.gen_loss_RES
+                #fetches["gen_loss_RES"] = model.gen_loss_RES
 
             if should(a.summary_freq):
                 print("preparing summary")
@@ -257,7 +257,7 @@ def main():
                 print("discrim_loss", results["discrim_loss"])
                 print("gen_loss_GAN", results["gen_loss_GAN"])
                 print("gen_loss_L1", results["gen_loss_L1"])
-                print("gen_loss_RES", results["gen_loss_RES"])
+                #print("gen_loss_RES", results["gen_loss_RES"])
 
             if should(a.save_freq):
                 print("saving model")
@@ -272,7 +272,7 @@ def main():
                 }
 
                 validation_results = sess.run(validation_fetches, feed_dict={handle: validation_handle})
-                print("validation gen_loss_GAN", validation_results["validation_gen_loss_GAN"])
+                #print("validation gen_loss_GAN", validation_results["validation_gen_loss_GAN"])
                 print("validation gen_loss_L1", validation_results["validation_gen_loss_L1"])
                 validation_summary_writer.add_summary(validation_results["summary"], results["global_step"])
 

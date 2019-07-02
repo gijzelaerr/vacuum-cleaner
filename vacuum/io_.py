@@ -79,8 +79,8 @@ def load_data(path,             # type: str
         for i in range(min_, max_):
             # add one channel
             # header = fits.open("{}/{}-skymodel.fits".format(path, i))[0].header todo: we need to encode this as a string
-            psf = fits_open("{}/{}-wsclean-psf.fits".format(path, i))[:, :, np.newaxis]
-            dirty = fits_open("{}/{}-wsclean-dirty.fits".format(path, i))[:, :, np.newaxis]
+            psf = fits_open("{}/{}-psf.fits".format(path, i))[128:-128, 128:-128, np.newaxis]
+            dirty = fits_open("{}/{}-dirty.fits".format(path, i))[:, :, np.newaxis]
             skymodel = fits_open("{}/{}-skymodel.fits".format(path, i))[:, :, np.newaxis]
             min_flux = dirty.min()
             max_flux = dirty.max()
