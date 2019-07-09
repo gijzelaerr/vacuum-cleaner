@@ -1,9 +1,10 @@
 #!bash -ve
 
+EXPERIMENT=gan_psf_res
 PREFIX=/home/gijs/Work/vacuum-cleaner/
 PYTHON=${PREFIX}/.venv3/bin/python
 SCRIPT=${PREFIX}/vacuum/trainer.py
-OUTPUT_PREFIX=/scratch/vacuum-cleaner/final_eval_lr/gan_psf/run
+OUTPUT_PREFIX=/scratch/vacuum-cleaner/final_eval_lr/${EXPERIMENT}/run
 INPUT_DIR=/scratch/datasets/astro_deconv_2019/train
 
 for i in 1 2 3 4 5 6 7 8 9 10

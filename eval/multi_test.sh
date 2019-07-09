@@ -1,10 +1,10 @@
 #!/usr/bin/env bash -ve
 
-experiment=gan  # gan_psf  gan gan_psf  gan_psf_res
-runs=(1) # 2 3 4 5 6 7 8 9 10)
+experiment=gan_psf_res  # gan_psf  gan gan_psf  gan_psf_res
+runs=(1 2 3 4 5 6 7 8 9 10)
 for run in "${runs[@]}"; do
     output_prefix=/scratch/vacuum-cleaner/final_eval_lr/${experiment}/test/run${run}
-    checkpoint_prefix=/scratch/vacuum-cleaner/final_eval_lr/${experiment}/train/run${run}/train/model-
+    checkpoint_prefix=/scratch/vacuum-cleaner/final_eval_lr/${experiment}/run${run}/train/model-
     input_dir=/scratch/datasets/astro_deconv_2019/test
     test_start=9400
     test_end=9700
