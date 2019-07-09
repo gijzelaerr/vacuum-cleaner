@@ -77,9 +77,9 @@ def load_data(path,             # type: str
 
     def dataset_generator():
         for i in range(min_, max_):
-            # add one channel
-            # header = fits.open("{}/{}-skymodel.fits".format(path, i))[0].header todo: we need to encode this as a string
-            psf = fits_open("{}/{}-psf.fits".format(path, i))[128:-128, 128:-128, np.newaxis]
+            # todo: we need to encode the header as a string
+            # header = fits.open("{}/{}-skymodel.fits".format(path, i))[0].header
+            psf = fits_open("{}/{}-psf.fits".format(path, i))[:, :, np.newaxis]
             dirty = fits_open("{}/{}-dirty.fits".format(path, i))[:, :, np.newaxis]
             skymodel = fits_open("{}/{}-skymodel.fits".format(path, i))[:, :, np.newaxis]
             min_flux = dirty.min()
@@ -87,8 +87,9 @@ def load_data(path,             # type: str
             yield i, min_flux, max_flux, psf, dirty, skymodel
 
     ds = tf.data.Dataset.from_generator(dataset_generator,
-                                        output_shapes=((), (), ()) + ((crop_size, crop_size, 1),) * 3,
-                                        output_types=(tf.int32, tf.float32, tf.float32) + (tf.float32,) * 3
+                                        output_shapes=((), (), (), (512, 512, 1), (256, 256, 1), (256, 256, 1)),
+                                        output_types=(tf.int32, tf.float32, tf.float32,
+                                                      tf.float32, tf.float32, tf.float32),
                                         )
 
     # transforming
