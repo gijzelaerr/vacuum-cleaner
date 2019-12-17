@@ -21,8 +21,8 @@ parser.add_argument("--seed", type=int)
 
 parser.add_argument("--max_steps", type=int, default=100000, help="number of training steps (0 to disable)")
 parser.add_argument("--max_epochs", type=int, help="number of training epochs")
-parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
-parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
+parser.add_argument("--summary_freq", type=int, default=20, help="update summaries every summary_freq steps")
+parser.add_argument("--progress_freq", type=int, default=20, help="display progress every progress_freq steps")
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
 parser.add_argument("--display_freq", type=int, default=0,
                     help="write current training images every display_freq steps")
@@ -35,11 +35,11 @@ parser.add_argument("--ndf", type=int, default=64, help="number of discriminator
 parser.add_argument("--scale_size", type=int, default=256, help="scale images to this size before cropping to 256x256")
 parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
 parser.set_defaults(flip=True)
-parser.add_argument("--lr", type=float, default=0.0001, help="initial learning rate for adam")
+parser.add_argument("--lr", type=float, default=0.001, help="initial learning rate for adam")
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
-parser.add_argument("--res_weight", type=float, default=0.001, help="weight on residual term for generator gradient")
+parser.add_argument("--res_weight", type=float, default=0.00001, help="weight on residual term for generator gradient")
 
 parser.add_argument("--train_start", type=int, help="start index of train dataset subset", default=0)
 parser.add_argument("--train_end", type=int, help="end index of train dataset subset", default=9400)
@@ -88,10 +88,11 @@ def main():
     with tf.name_scope("scaling_flux"):
         scaled_skymodel = preprocess(skymodel, min_flux, max_flux)
         scaled_dirty = preprocess(dirty, min_flux, max_flux)
+        scaled_psf = (psf * 2) - 1
 
     # inputs and targets are [batch_size, height, width, channels]
     model = create_model(scaled_dirty, scaled_skymodel, EPS, a.separable_conv, beta1=a.beta1, gan_weight=a.gan_weight,
-                         l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf, psf=psf, min_flux=min_flux,
+                         l1_weight=a.l1_weight, lr=a.lr, ndf=a.ndf, ngf=a.ngf, psf=scaled_psf, min_flux=min_flux,
                          max_flux=max_flux, res_weight=a.res_weight)
 
     # reverse any processing on images so they can be written to disk or displayed to user
@@ -99,8 +100,10 @@ def main():
         converted_inputs = tf.image.convert_image_dtype(visual_scaling(scaled_dirty), dtype=tf.uint8, saturate=True)
         converted_targets = tf.image.convert_image_dtype(visual_scaling(scaled_skymodel), dtype=tf.uint8, saturate=True)
         converted_outputs = tf.image.convert_image_dtype(visual_scaling(model.outputs), dtype=tf.uint8, saturate=True)
-        converted_psfs = tf.image.convert_image_dtype(psf, dtype=tf.uint8, saturate=True)
+        converted_psfs = tf.image.convert_image_dtype(visual_scaling(scaled_psf), dtype=tf.uint8, saturate=True)
         converted_residuals = tf.image.convert_image_dtype(visual_scaling(model.residuals), dtype=tf.uint8, saturate=True)
+        converted_likelihood = tf.image.convert_image_dtype(visual_scaling(model.likelihood), dtype=tf.uint8,
+                                                           saturate=True)
 
     with tf.name_scope("encode_images"):
         display_fetches = {
@@ -110,6 +113,7 @@ def main():
             "outputs": tf.map_fn(tf.image.encode_png, converted_outputs, dtype=tf.string, name="output_pngs"),
             "psfs": tf.map_fn(tf.image.encode_png, converted_psfs, dtype=tf.string, name="psf_pngs"),
             "residuals": tf.map_fn(tf.image.encode_png, converted_residuals, dtype=tf.string, name="residual_pngs"),
+            "likelihood": tf.map_fn(tf.image.encode_png, converted_likelihood, dtype=tf.string, name="likelihood_pngs"),
         }
 
     # summaries
@@ -118,20 +122,20 @@ def main():
         tf.summary.image("outputs", converted_outputs)
         tf.summary.image("targets", converted_targets)
         tf.summary.image("residuals", converted_residuals)
-
-    with tf.name_scope("psfs_summary"):
+        tf.summary.image("likelihood", converted_likelihood)
         tf.summary.image("psfss", converted_psfs)
 
-    with tf.name_scope("predict_real_summary"):
+    with tf.name_scope("predict_summary"):
         tf.summary.image("predict_real", tf.image.convert_image_dtype(model.predict_real, dtype=tf.uint8))
-
-    with tf.name_scope("predict_fake_summary"):
         tf.summary.image("predict_fake", tf.image.convert_image_dtype(model.predict_fake, dtype=tf.uint8))
 
-    tf.summary.scalar("discriminator_loss", model.discrim_loss)
-    tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
-    tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
-    tf.summary.scalar("generator_loss_RES", model.gen_loss_RES)
+    with tf.name_scope("generator_scalars"):
+        tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
+        tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
+        tf.summary.scalar("generator_loss_RES", model.gen_loss_RES)
+
+    with tf.name_scope("discriminator_scalars"):
+        tf.summary.scalar("discriminator_loss", model.discrim_loss)
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
@@ -143,7 +147,8 @@ def main():
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
 
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
-    sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, save_model_secs=0)
+    saver = tf.train.Saver(max_to_keep=0)
+    sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, save_model_secs=0, saver=saver)
 
     with sv.managed_session() as sess:
         print("parameter_count =", sess.run(parameter_count))

@@ -60,7 +60,7 @@ def test(
     if disable_psf:
         input_ = scaled_dirty
     else:
-        input_ = tf.concat([scaled_dirty, scaled_psf], axis=3)
+        input_ = tf.concat([dirty, psf[:, 128:-128, 128:-128, :]], axis=3)
 
     with tf.variable_scope("generator"):
         generator = create_generator(input_, 1, ngf=ngf, separable_conv=separable_conv)

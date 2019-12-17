@@ -10,7 +10,7 @@ from vacuum.io_ import deprocess
 
 Model = namedtuple("Model",
                    "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, "
-                   "gen_loss_RES, gen_grads_and_vars, train, gen_loss_L1, gen_loss_GAN, residuals")
+                   "gen_loss_RES, gen_grads_and_vars, train, gen_loss_L1, gen_loss_GAN, residuals, likelihood")
 
 
 def create_generator(generator_inputs, generator_outputs_channels, ngf, separable_conv):
@@ -120,6 +120,14 @@ def create_discriminator(discrim_inputs, discrim_targets, ndf):
     return layers[-1]
 
 
+def convolve(convolved, psf):
+    if convolved.shape != psf.shape:
+        # probably convolving with a big psf
+        convolver = psf[:, 128:-128, 128:-128, :]
+    filter_ = tf.squeeze(convolver)[:, :, tf.newaxis, tf.newaxis]  #  [height, width, in_channels, out_channels]
+    return (tf.nn.conv2d((convolved + 1)/2, filter=(filter_ + 1)/2, strides=[1, 1, 1, 1], padding="SAME") * 2) - 1
+
+
 def create_model(
         dirty,          # type: tf.Tensor
         targets,        # type: tf.Tensor
@@ -136,6 +144,9 @@ def create_model(
         min_flux,       # type: float
         max_flux,       # type: float
         disable_psf=False):  # type: (...) -> Model
+
+    #dirty = convolve(targets, psf[:, 128:-128, 128:-128, :])
+    #print(dirty.shape)
 
     if disable_psf:
         input_ = dirty
@@ -165,24 +176,30 @@ def create_model(
         discrim_loss = tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))
 
     with tf.name_scope("generator_residuals"):
-        deprocessed_output = deprocess(outputs, min_flux, max_flux)
-        convolved = tf.nn.conv2d(deprocessed_output,
-                                 tf.squeeze(psf)[:, :, tf.newaxis, tf.newaxis],
-                                 [1, 1, 1, 1],
-                                 "SAME")
-        residuals = dirty - convolved
+        convolved = convolve(outputs, psf)
+        residuals = tf.abs(dirty - convolved)
 
     with tf.name_scope("generator_loss"):
         # predict_fake => 1
         # abs(targets - outputs) => 0
         gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
-        gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
-        deprocessed_dirty = deprocess(dirty, min_flux, max_flux)
+        gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))  # original pix2pix L1
+        # gen_loss_L1 = tf.reduce_mean(tf.abs(outputs))
+        # gen_loss_L1 = tf.reduce_sum(tf.abs(targets - outputs))  # L1
+        #gen_loss_L1 = tf.reduce_sum((targets - outputs) ** 2) / 2  # L2
 
         # likelihood
-        gen_loss_RES = tf.reduce_sum(tf.multiply(deprocessed_output, convolved - 2 * deprocessed_dirty))
+        likelihood = tf.multiply(outputs, convolved - 2 * dirty)
+        gen_loss_RES = tf.reduce_sum(likelihood)
 
-        gen_loss = gen_loss_L1 * l1_weight + gen_loss_GAN * gan_weight  # + gen_loss_RES * res_weight
+        # GAN
+        #gen_loss = gen_loss_L1 * l1_weight + gen_loss_GAN * gan_weight
+
+        # likelihood
+        gen_loss = gen_loss_L1 * l1_weight + gen_loss_GAN * gan_weight  + gen_loss_RES * res_weight
+
+        # l2 + RES
+        #gen_loss = gen_loss_L1 * 10 + gen_loss_RES
 
     with tf.name_scope("discriminator_train"):
         discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
@@ -214,7 +231,8 @@ def create_model(
         gen_grads_and_vars=gen_grads_and_vars,
         outputs=outputs,
         train=tf.group(update_losses, incr_global_step, gen_train),
-        residuals=residuals,
+        residuals=convolved,
+        likelihood=likelihood,
     )
 
 
@@ -228,6 +246,7 @@ def gen_conv(batch_input, out_channels, separable_conv):
     # type: (Any, Any, bool) -> Any
     # [batch, in_height, in_width, in_channels] => [batch, out_height, out_width, out_channels]
     initializer = tf.random_normal_initializer(0, 0.02)
+    print(out_channels)
     if separable_conv:
         return tf.layers.separable_conv2d(batch_input, out_channels, kernel_size=4, strides=(2, 2), padding="same",
                                           depthwise_initializer=initializer, pointwise_initializer=initializer)
