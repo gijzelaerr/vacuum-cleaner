@@ -31,7 +31,4 @@ Developement of vacuum-cleaner has been discontinued (for now), so this reposito
 
 ## Training
 
-Have a look at `vacuum-train --help` or at the source. Intended to be trained with
-[spiel](https://github.com/gijzelaerr/spiel/) as training data generator.
-
-
+We used [spiel](https://github.com/gijzelaerr/spiel/) for generating training data used for our experiments.
