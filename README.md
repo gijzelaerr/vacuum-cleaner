@@ -9,39 +9,25 @@ Whch is based on [pix2pix](https://phillipi.github.io/pix2pix/) by Isola et al.
 [Article about this implemention](https://affinelayer.com/pix2pix/)
 
 
-## preparations
-
-You probably want to download a pretrained model.
-
-download:
-
-http://repo.kernsuite.info/vacuum/model.tar.xz
-
-And extract to `share/vacuum/model`.
- 
-
 ## Setup
 
 ```
-$ pip install vacuum-cleaner
+$ pip install .
 
 ```
 
 or if you want to try the GPU accelerated version:
 
 ```
-$ pip install "vacuum-cleaner[gpu]"
+$ pip install ".[gpu]"
 
 ```
 But the tensorflow-gpu package is not the most portable package available.
 
 ## Usage
 
-```
-$ vacuum-clean dirty.fits psf.fits
-```       
-      __
-
+This software is in early alpha stage, and is not ready for end-user usage.
+Developement of vacuum-cleaner has been discontinued (for now), so this repository is merely and hopefully an example for future radio astronomers wanting to experiment with deep learning techniques for solving the deconvolultion problem.
 
 ## Training
 
